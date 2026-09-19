@@ -2270,7 +2270,17 @@
                         // かぶりが成立した場合は、その「先に入った成功得点」を取り消してから
                         // かぶり時の減点だけを適用する。
                         // ただし、直前の押下自体がすでにかぶりだった場合は、成功得点は入っていないので取り消さない。
-                        const targetWasNormalSuccess = game.lastWasKaburi !== true && !(game.pendingWin && game.pendingWin.playerId === target);
+                        const targetWasPendingWin = !!(game.pendingWin && game.pendingWin.playerId === target);
+
+                        // 優勝点到達待ちのプレイヤーが0.2秒以内にかぶった場合は、
+                        // 保留していた「優勝候補」そのものを取り消す。
+                        // これを消さないと、かぶり処理の後に保留処理が実行され、
+                        // 減点・失格になった後でも優勝メッセージが出てしまう。
+                        if (targetWasPendingWin) {
+                            game.pendingWin = null;
+                        }
+
+                        const targetWasNormalSuccess = game.lastWasKaburi !== true && !targetWasPendingWin;
                         if (targetWasNormalSuccess && game.players[target] && !game.players[target].isDisqualified) {
                             game.players[target].score = Math.max(0, Number(game.players[target].score || 0) - successVal);
                         }
