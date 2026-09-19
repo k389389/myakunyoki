@@ -1115,7 +1115,6 @@
                 <li id="confirmRuleDisqualify">❌ 失格：3回</li>
                 <li id="confirmRuleMushroom">🍄 キノコタイム：ON</li>
             </ul>
-            <button class="rule-confirm-start" id="ruleConfirmStartBtn" type="button">このルールでスタート</button>
         </div>
     </div>
 
@@ -1733,50 +1732,44 @@
             isGameStarted = false;
             nyokkiBtn.classList.add('game-waiting');
 
-            // 3カウントの前に、現在設定されているルールを確認表示。
-            const ruleConfirmOverlay = document.getElementById('ruleConfirmOverlay');
-            const timeValue = document.getElementById('ruleTime').value;
-            const failValue = document.getElementById('ruleFail').value;
-            const successValue = document.getElementById('ruleSuccess').value;
-            const winValue = document.getElementById('ruleWin').value;
-            const disqualifyValue = document.getElementById('ruleDisqualify').value;
-            const mushroomValue = document.getElementById('ruleMushroom').value;
-
-            document.getElementById('confirmRuleTime').textContent = `⏱️ 時間：${timeValue === 'unlimited' ? '無制限' : timeValue + '分'}`;
-            document.getElementById('confirmRuleFail').textContent = `💥 かぶったら：${failValue === '0' ? '0点になる' : '得点 −' + Math.abs(parseInt(failValue) || 0)}`;
-            document.getElementById('confirmRuleSuccess').textContent = `🌱 成功したら：＋${parseInt(successValue) || 1}点`;
-            document.getElementById('confirmRuleWin').textContent = `🏆 優勝：${parseInt(winValue) || 10}点`;
-            document.getElementById('confirmRuleDisqualify').textContent = `❌ 失格：${disqualifyValue === 'unlimited' ? 'なし（無制限）' : disqualifyValue + '回'}`;
-            document.getElementById('confirmRuleMushroom').textContent = `🍄 キノコタイム：${mushroomValue === 'on' ? 'ON' : 'OFF'}`;
-            ruleConfirmOverlay.classList.add('active');
-        }
-
-        // 「このルールでスタート」を押したら、従来どおりの3カウントを開始。
-        document.getElementById('ruleConfirmStartBtn').addEventListener('click', () => {
-            const ruleConfirmOverlay = document.getElementById('ruleConfirmOverlay');
-            ruleConfirmOverlay.classList.remove('active');
-
             const overlay = document.getElementById('startCountdownOverlay');
             const number = document.getElementById('startCountdownNumber');
             const text = document.getElementById('startCountdownText');
+
+            // ルール確認画面は表示せず、すぐ3カウントを開始。
+            const ruleConfirmOverlay = document.getElementById('ruleConfirmOverlay');
+            if (ruleConfirmOverlay) ruleConfirmOverlay.classList.remove('active');
+
             overlay.classList.add('active');
             let count = 3;
-            number.textContent = count; text.textContent = 'ゲーム開始まで';
+            number.textContent = count;
+            text.textContent = 'ゲーム開始まで';
             playSound('countdown');
+
             startCountdownInterval = setInterval(() => {
                 count--;
                 if (count > 0) {
                     number.textContent = count;
-                    number.style.animation='none'; void number.offsetWidth; number.style.animation='startCountPop .7s ease-out';
+                    number.style.animation='none';
+                    void number.offsetWidth;
+                    number.style.animation='startCountPop .7s ease-out';
                     playSound('countdown');
                 } else {
-                    clearInterval(startCountdownInterval); startCountdownInterval=null;
-                    number.textContent='スタート！'; text.textContent='';
+                    clearInterval(startCountdownInterval);
+                    startCountdownInterval = null;
+                    number.textContent = 'スタート！';
+                    text.textContent = '';
                     playSound('start');
+
                     setTimeout(() => {
-                        overlay.classList.remove('active'); isGameStarted=true; nyokkiBtn.classList.remove('game-waiting');
-                        const durationSec = (document.getElementById('ruleTime').value === 'unlimited') ? 0 : ((parseInt(document.getElementById('ruleTime').value) || 3) * 60);
+                        overlay.classList.remove('active');
+                        isGameStarted = true;
+                        nyokkiBtn.classList.remove('game-waiting');
+                        const durationSec = (document.getElementById('ruleTime').value === 'unlimited')
+                            ? 0
+                            : ((parseInt(document.getElementById('ruleTime').value) || 3) * 60);
                         const timerStartAt = getServerNow();
+
                         if (onlineReady && roomRef) {
                             roomRef.child('game').transaction(game => {
                                 if (!game || game.isGameOver) return;
@@ -1786,19 +1779,26 @@
                             });
                         }
                         startTimer(timerStartAt, durationSec);
-                    },700);
+                    }, 700);
                 }
-            },1000);
-        });
+            }, 1000);
+        }
 
         // Firebaseのリセット時刻を基準に、全端末で同時に「ルール3秒→3カウント→開始」。
         let syncedStartTimer = null;
         function startSyncedRuleAndCountdown(resetAt) {
             if (syncedStartTimer) { clearInterval(syncedStartTimer); syncedStartTimer = null; }
+
             const ruleConfirmOverlay = document.getElementById('ruleConfirmOverlay');
             const overlay = document.getElementById('startCountdownOverlay');
             const number = document.getElementById('startCountdownNumber');
             const text = document.getElementById('startCountdownText');
+
+            if (ruleConfirmOverlay) ruleConfirmOverlay.classList.remove('active');
+            overlay.classList.add('active');
+            isGameStarted = false;
+            nyokkiBtn.classList.add('game-waiting');
+
             const rules = {
                 time: document.getElementById('ruleTime').value,
                 fail: document.getElementById('ruleFail').value,
@@ -1807,40 +1807,40 @@
                 disqualify: document.getElementById('ruleDisqualify').value,
                 mushroom: document.getElementById('ruleMushroom').value
             };
-            document.getElementById('confirmRuleTime').textContent = `⏱️ 時間：${rules.time === 'unlimited' ? '無制限' : rules.time + '分'}`;
-            document.getElementById('confirmRuleFail').textContent = `💥 かぶったら：${rules.fail === '0' ? '0点になる' : '得点 −' + Math.abs(parseInt(rules.fail) || 0)}`;
-            document.getElementById('confirmRuleSuccess').textContent = `🌱 成功したら：＋${parseInt(rules.success) || 1}点`;
-            document.getElementById('confirmRuleWin').textContent = `🏆 優勝：${parseInt(rules.win) || 5}点`;
-            document.getElementById('confirmRuleDisqualify').textContent = `❌ 失格：${rules.disqualify === 'unlimited' ? 'なし（無制限）' : rules.disqualify + '回'}`;
-            document.getElementById('confirmRuleMushroom').textContent = `🍄 キノコタイム：${rules.mushroom === 'on' ? 'ON' : 'OFF'}`;
-            ruleConfirmOverlay.classList.add('active');
-            overlay.classList.remove('active');
-            isGameStarted = false;
-            nyokkiBtn.classList.add('game-waiting');
 
             const tick = () => {
                 const now = getServerNow();
-                const untilCountdown = Number(resetAt) + 3000 - now;
-                if (untilCountdown > 0) return;
-                ruleConfirmOverlay.classList.remove('active');
-                overlay.classList.add('active');
-                const elapsed = now - (Number(resetAt) + 3000);
+                const elapsed = now - Number(resetAt);
                 const count = Math.floor(elapsed / 1000);
+
+                if (count < 0) return;
+
                 if (count < 3) {
                     const n = 3 - count;
                     number.textContent = n;
                     text.textContent = 'ゲーム開始まで';
-                    if (n !== 3) { number.style.animation='none'; void number.offsetWidth; number.style.animation='startCountPop .7s ease-out'; playSound('countdown'); }
+                    if (n !== 3) {
+                        number.style.animation='none';
+                        void number.offsetWidth;
+                        number.style.animation='startCountPop .7s ease-out';
+                        playSound('countdown');
+                    }
                 } else {
-                    clearInterval(syncedStartTimer); syncedStartTimer = null;
-                    number.textContent = 'スタート！'; text.textContent = '';
+                    clearInterval(syncedStartTimer);
+                    syncedStartTimer = null;
+                    number.textContent = 'スタート！';
+                    text.textContent = '';
                     playSound('start');
+
                     setTimeout(() => {
                         overlay.classList.remove('active');
                         isGameStarted = true;
                         nyokkiBtn.classList.remove('game-waiting');
-                        const durationSec = rules.time === 'unlimited' ? 0 : ((parseInt(rules.time) || 3) * 60);
-                        const timerStartAt = Number(resetAt) + 6000;
+                        const durationSec = rules.time === 'unlimited'
+                            ? 0
+                            : ((parseInt(rules.time) || 3) * 60);
+                        const timerStartAt = Number(resetAt) + 3700;
+
                         // 新しいゲームのタイマー開始時刻を全端末へ同期。
                         if (onlineReady && roomRef) {
                             roomRef.child('game').transaction(game => {
@@ -1854,8 +1854,9 @@
                     }, 700);
                 }
             };
+
             tick();
-            syncedStartTimer = setInterval(tick, 50);
+            syncedStartTimer = setInterval(tick, 100);
         }
 
         function resetGameUIOnly(syncedResetAt = null) {
@@ -2177,35 +2178,76 @@
                         const target = game.lastPlayerId;
                         const targetPlayer = game.players && game.players[target];
                         const currentPlayer = game.players && game.players[myPlayerId];
-                        if (!targetPlayer || !currentPlayer || targetPlayer.isDisqualified || currentPlayer.isDisqualified) {
+
+                        if (!targetPlayer || !currentPlayer ||
+                            targetPlayer.isDisqualified || currentPlayer.isDisqualified) {
                             return;
                         }
 
-                        // 直前のかぶりグループがあれば引き継ぎ、3人以上の同時押しにも対応する。
-                        // 既に処理した人には同じかぶりペナルティを重ねず、新しく加わった人だけ追加処理する。
-                        const previousKaburiIds = (game.lastWasKaburi && Array.isArray(game.lastKaburiPlayerIds))
-                            ? game.lastKaburiPlayerIds : [target];
-                        const kaburiIds = Array.from(new Set([...previousKaburiIds, target, myPlayerId]));
-                        const newKaburiIds = kaburiIds.filter(id => !previousKaburiIds.includes(id));
+                        // かぶったプレイヤーだけを減点・失格回数の対象にする。
+                        // 同じかぶりイベントに参加した全員を対象にするため、
+                        // 2人なら2人とも同じように処理される。
+                        const kaburiPlayerIds = [...new Set([target, myPlayerId])];
 
-                        newKaburiIds.forEach(id => {
-                            const p = game.players[id];
+                        kaburiPlayerIds.forEach(pid => {
+                            const p = game.players[pid];
                             if (!p || p.isDisqualified) return;
-                            p.kaburiCount = (p.kaburiCount || 0) + 1;
-                            // かぶりが発生した場合、得点は参加している全プレイヤーを減点する。
-                            // 失格回数の処理は従来どおり、かぶったプレイヤーだけに適用する。
-                            Object.keys(game.players || {}).forEach(pid => {
-                                const allPlayer = game.players[pid];
-                                if (!allPlayer || allPlayer.isDisqualified) return;
 
-                                // かぶりが発生したら、得点だけでなく
-                                // 「失格の回数」も全プレイヤーに同じように加算する。
-                                allPlayer.disqualifications =
-                                    Number(allPlayer.disqualifications || 0) + 1;
+                            // 減点
+                            if (failVal === "0") {
+                                p.score = 0;
+                            } else {
+                                const deduct = parseInt(failVal) || 0;
+                                p.score = Math.max(0, Number(p.score || 0) + deduct);
+                            }
 
-                                if (failVal === "0") {
-                                    allPlayer.score = 0;
-                                } else {
+                            // 失格回数
+                            p.kaburiCount = Number(p.kaburiCount || 0) + 1;
+
+                            // 失格判定
+                            if (disqualifyVal !== "unlimited") {
+                                const limitCount = parseInt(disqualifyVal);
+                                if (limitCount > 0 && p.kaburiCount >= limitCount) {
+                                    p.isDisqualified = true;
+                                }
+                            }
+                        });
+
+                        // かぶり発生後は現在の数をリセット
+                        game.currentCount = 0;
+
+                        game.lastPressAt = now;
+                        game.lastPlayerId = myPlayerId;
+                        game.lastWasKaburi = true;
+                        game.lastKaburiPlayerId = target;
+                        game.lastKaburiPlayerIds = kaburiPlayerIds;
+                        game.lastKaburiAt = now;
+                        game.lockedUntil = now + KABURI_GLOBAL_LOCK_MS;
+                    } else {
+                                const deduct = parseInt(failVal) || 0;
+                                p.score = Math.max(0, Number(p.score || 0) + deduct);
+                            }
+
+                            // 失格回数の判定も全プレイヤー同じ条件で行う。
+                            if (disqualifyVal !== "unlimited") {
+                                const limitCount = parseInt(disqualifyVal);
+                                if (limitCount > 0 && p.kaburiCount >= limitCount) {
+                                    p.isDisqualified = true;
+                                }
+                            }
+                        });
+
+                        // かぶりが発生したら、現在の数はルールに関係なく必ず0に戻す。
+                        game.currentCount = 0;
+
+                        game.lastPressAt = now;
+                        game.lastPlayerId = myPlayerId;
+                        game.lastWasKaburi = true;
+                        game.lastKaburiPlayerId = target;
+                        game.lastKaburiPlayerIds = [target, myPlayerId];
+                        game.lastKaburiAt = now;
+                        game.lockedUntil = now + KABURI_GLOBAL_LOCK_MS;
+                    } else {
                                     const deduct = parseInt(failVal);
                                     allPlayer.score = Math.max(0, (allPlayer.score || 0) + deduct);
                                 }
