@@ -2192,12 +2192,18 @@
                             const p = game.players[id];
                             if (!p || p.isDisqualified) return;
                             p.kaburiCount = (p.kaburiCount || 0) + 1;
-                            if (failVal === "0") {
-                                p.score = 0;
-                            } else {
-                                const deduct = parseInt(failVal);
-                                p.score = Math.max(0, (p.score || 0) + deduct);
-                            }
+                            // かぶりが発生した場合、得点は参加している全プレイヤーを減点する。
+                            // 失格回数の処理は従来どおり、かぶったプレイヤーだけに適用する。
+                            Object.keys(game.players || {}).forEach(pid => {
+                                const allPlayer = game.players[pid];
+                                if (!allPlayer || allPlayer.isDisqualified) return;
+                                if (failVal === "0") {
+                                    allPlayer.score = 0;
+                                } else {
+                                    const deduct = parseInt(failVal);
+                                    allPlayer.score = Math.max(0, (allPlayer.score || 0) + deduct);
+                                }
+                            });
                             if (disqualifyVal !== "unlimited") {
                                 const limitCount = parseInt(disqualifyVal);
                                 if (p.kaburiCount >= limitCount) p.isDisqualified = true;
