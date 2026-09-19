@@ -594,6 +594,7 @@
             color: #666;
             line-height: 1.6;
             margin: 0;
+            margin-bottom: -12px;
         }
 
         /* 一番下のルール変更ボタンエリア */
@@ -1840,6 +1841,15 @@
                         nyokkiBtn.classList.remove('game-waiting');
                         const durationSec = rules.time === 'unlimited' ? 0 : ((parseInt(rules.time) || 3) * 60);
                         const timerStartAt = Number(resetAt) + 6000;
+                        // 新しいゲームのタイマー開始時刻を全端末へ同期。
+                        if (onlineReady && roomRef) {
+                            roomRef.child('game').transaction(game => {
+                                if (!game || game.isGameOver || Number(game.resetAt || 0) !== Number(resetAt)) return;
+                                game.timerStartAt = timerStartAt;
+                                game.timerDurationSec = durationSec;
+                                return game;
+                            });
+                        }
                         startTimer(timerStartAt, durationSec);
                     }, 700);
                 }
@@ -1903,6 +1913,9 @@
                         game.lockedUntil = 0;
                         game.isGameOver = false;
                         game.gameOverReason = '';
+                        // 前回ゲームのタイマーを引き継がない
+                        game.timerStartAt = 0;
+                        game.timerDurationSec = 0;
                         game.resetAt = resetAt;
                         game.resetBy = myPlayerId;
                         game.chatResetAt = resetAt;
