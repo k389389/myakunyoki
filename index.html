@@ -1977,6 +1977,7 @@
                         game.lastKaburiPlayerId = '';
                         game.lastKaburiPlayerIds = [];
                         game.lastKaburiAt = 0;
+                        game.pendingWin = null;
                         game.lockedUntil = 0;
                         game.isGameOver = false;
                         game.gameOverReason = '';
@@ -2269,7 +2270,7 @@
                         // かぶりが成立した場合は、その「先に入った成功得点」を取り消してから
                         // かぶり時の減点だけを適用する。
                         // ただし、直前の押下自体がすでにかぶりだった場合は、成功得点は入っていないので取り消さない。
-                        const targetWasNormalSuccess = game.lastWasKaburi !== true;
+                        const targetWasNormalSuccess = game.lastWasKaburi !== true && !(game.pendingWin && game.pendingWin.playerId === target);
                         if (targetWasNormalSuccess && game.players[target] && !game.players[target].isDisqualified) {
                             game.players[target].score = Math.max(0, Number(game.players[target].score || 0) - successVal);
                         }
@@ -2323,14 +2324,20 @@
                     }
 
                     if (game.players && game.players[myPlayerId]) {
-                        game.players[myPlayerId].score =
-                            (game.players[myPlayerId].score || 0) + successVal;
+                        const nextScore = (game.players[myPlayerId].score || 0) + successVal;
 
-                        // 優勝判定は「かぶりなしで得点が加算されたとき」だけ行う。
-                        // かぶり時はこのブロックを通らないため、6点→かぶりで7点到達扱いにはしない。
-                        if (!game.lastWasKaburi && game.players[myPlayerId].score >= winTarget) {
-                            game.isGameOver = true;
-                            game.gameOverReason = `目標ポイント ${winTarget}点達成で優勝！`;
+                        // 優勝点に到達する押下だけは、0.2秒のかぶり判定が終わるまで保留。
+                        // その間に別プレイヤーが押してかぶった場合、先に得点を入れないので
+                        // 「先に優勝してしまう」ことを防ぐ。
+                        if (nextScore >= winTarget) {
+                            game.pendingWin = {
+                                playerId: myPlayerId,
+                                score: nextScore,
+                                dueAt: now + KABURI_WINDOW_MS
+                            };
+                        } else {
+                            game.players[myPlayerId].score = nextScore;
+                            game.pendingWin = null;
                         }
                     }
 
@@ -2338,12 +2345,34 @@
                 });
 
                 if (!result.committed) return;
-                playSound(result.snapshot.val()?.lastWasKaburi ? 'kaburi' : 'success');
+                const committedGame = result.snapshot.val() || {};
+                if (committedGame.pendingWin && committedGame.pendingWin.playerId === myPlayerId) {
+                    finalizePendingWin(committedGame.pendingWin.playerId, committedGame.pendingWin.dueAt);
+                }
+                playSound(committedGame.lastWasKaburi ? 'kaburi' : 'success');
             } catch (err) {
                 console.error(err);
                 addLogMessage('⚠️ 通信エラーが発生しました。もう一度押してください。', true);
             }
         });
+
+        // 優勝点到達時は、かぶり判定の0.2秒が終わってから確定する。
+        function finalizePendingWin(playerId, dueAt) {
+            setTimeout(() => {
+                if (!onlineReady || !roomRef) return;
+                roomRef.child('game').transaction(game => {
+                    if (!game || game.isGameOver || !game.pendingWin) return;
+                    if (game.pendingWin.playerId !== playerId || Number(game.pendingWin.dueAt || 0) !== Number(dueAt)) return;
+                    const p = game.players && game.players[playerId];
+                    if (!p || p.isDisqualified) { game.pendingWin = null; return game; }
+                    p.score = Number(game.pendingWin.score || p.score || 0);
+                    game.pendingWin = null;
+                    game.isGameOver = true;
+                    game.gameOverReason = `目標ポイント ${parseInt(game.rules?.win || game.rules?.winningScore || 0) || p.score}点達成で優勝！`;
+                    return game;
+                });
+            }, KABURI_WINDOW_MS + 20);
+        }
 
         // Firebaseオンライン対戦本体
         const KABURI_WINDOW_MS = 200;
