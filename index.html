@@ -582,6 +582,30 @@
             opacity: 0.9;
         }
 
+
+        .myaku-count-effect {
+            position: absolute;
+            left: 50%;
+            top: -42px;
+            transform: translate(-50%, 8px) scale(0.85);
+            color: #b83d53;
+            font-size: 24px;
+            font-weight: 900;
+            white-space: nowrap;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.12);
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0;
+            animation: myakuCountPop 0.9s ease-out forwards;
+        }
+
+        @keyframes myakuCountPop {
+            0% { transform: translate(-50%, 10px) scale(0.8); opacity: 0; }
+            18% { transform: translate(-50%, 0) scale(1.08); opacity: 1; }
+            55% { transform: translate(-50%, -8px) scale(1); opacity: 1; }
+            100% { transform: translate(-50%, -34px) scale(0.96); opacity: 0; }
+        }
+
         .nyokki-btn.is-pressed,
         .nyokki-btn:active {
             transform: translateY(8px);
@@ -2059,6 +2083,17 @@
             }, 3900);
         }
 
+
+        // かぶらず成功したとき、現在の数＋「ミャク」をボタン上に表示。
+        function showMyakuCountEffect(count) {
+            if (!nyokkiBtn) return;
+            const effect = document.createElement('div');
+            effect.className = 'myaku-count-effect';
+            effect.textContent = `${Number(count) || 0}ミャク`;
+            nyokkiBtn.appendChild(effect);
+            setTimeout(() => effect.remove(), 950);
+        }
+
         function sendMessage() {
             const text = chatInput.value.trim();
             if (text === '') return;
@@ -2410,8 +2445,11 @@
             const pressAt = Number(game.lastPressAt || 0);
             if (pressAt > 0 && pressAt !== lastHeardPressAt) {
                 lastHeardPressAt = pressAt;
-                if (game.lastPlayerId !== myPlayerId) {
-                    playSound(game.lastWasKaburi ? 'kaburi' : 'success');
+                if (game.lastWasKaburi) {
+                    if (game.lastPlayerId !== myPlayerId) playSound('kaburi');
+                } else {
+                    if (game.lastPlayerId !== myPlayerId) playSound('success');
+                    showMyakuCountEffect(game.currentCount);
                 }
             }
 
