@@ -2180,33 +2180,18 @@
 
                         if (!targetPlayer || !currentPlayer ||
                             targetPlayer.isDisqualified || currentPlayer.isDisqualified) {
-                            return;
+                            return game;
                         }
 
-                        // 0.2秒以内に実際にかぶったプレイヤーだけを対象にする。
-                        // 3人以上が同じ0.2秒内に押した場合も、同じかぶりグループとして扱う。
-                        const previousKaburiIds =
-                            (game.lastWasKaburi && Array.isArray(game.lastKaburiPlayerIds))
-                                ? game.lastKaburiPlayerIds
-                                : [target];
+                        // 今回実際にかぶった2人だけをペナルティ対象にする。
+                        // かぶっていないプレイヤーには一切影響させない。
+                        const kaburiPlayerIds = [...new Set([target, myPlayerId])];
 
-                        const kaburiIds = Array.from(
-                            new Set([...previousKaburiIds, target, myPlayerId])
-                        );
-
-                        // 同じかぶりイベント内で、すでに処理した人には
-                        // 減点・失格回数を二重に加算しない。
-                        const newKaburiIds = kaburiIds.filter(
-                            id => !previousKaburiIds.includes(id)
-                        );
-
-                        // 今回新たにかぶりグループへ入ったプレイヤーだけを処理。
-                        // つまり、かぶっていないプレイヤーには一切影響しない。
-                        newKaburiIds.forEach(id => {
-                            const p = game.players[id];
+                        kaburiPlayerIds.forEach(pid => {
+                            const p = game.players[pid];
                             if (!p || p.isDisqualified) return;
 
-                            // 減点
+                            // 減点：かぶったプレイヤーだけ
                             if (failVal === "0") {
                                 p.score = 0;
                             } else {
@@ -2214,10 +2199,10 @@
                                 p.score = Math.max(0, Number(p.score || 0) + deduct);
                             }
 
-                            // 失格の回数
+                            // 失格回数：かぶったプレイヤーだけ +1
                             p.kaburiCount = Number(p.kaburiCount || 0) + 1;
 
-                            // 失格判定
+                            // 設定回数に達したら、そのプレイヤーだけ失格
                             if (disqualifyVal !== "unlimited") {
                                 const limitCount = parseInt(disqualifyVal);
                                 if (limitCount > 0 && p.kaburiCount >= limitCount) {
@@ -2225,7 +2210,6 @@
                                 }
                             }
 
-                            // 同じかぶりグループのロック時間を設定
                             p.nyokkiCooldownUntil = now + NYOKKI_COOLDOWN_MS;
                         });
 
@@ -2234,7 +2218,7 @@
                         game.lastPlayerId = myPlayerId;
                         game.lastWasKaburi = true;
                         game.lastKaburiPlayerId = target;
-                        game.lastKaburiPlayerIds = kaburiIds;
+                        game.lastKaburiPlayerIds = kaburiPlayerIds;
                         game.lastKaburiAt = now;
                         game.lockedUntil = now + KABURI_GLOBAL_LOCK_MS;
                         return game;
