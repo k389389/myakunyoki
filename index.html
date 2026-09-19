@@ -1380,15 +1380,15 @@
             setTimeout(() => fx.remove(), 1500);
         }
 
-        function updateCurrentRules() {
+        function updateCurrentRules(rules = null) {
             const el = document.getElementById('currentRuleItems');
             if (!el) return;
-            const time = document.getElementById('ruleTime')?.value || '3';
-            const fail = document.getElementById('ruleFail')?.value || '0';
-            const success = document.getElementById('ruleSuccess')?.value || '1';
-            const win = document.getElementById('ruleWin')?.value || '5';
-            const disq = document.getElementById('ruleDisqualify')?.value || '3';
-            const mushroom = document.getElementById('ruleMushroom')?.value || 'on';
+            const time = rules?.time ?? document.getElementById('ruleTime')?.value ?? '3';
+            const fail = rules?.fail ?? document.getElementById('ruleFail')?.value ?? '0';
+            const success = rules?.success ?? document.getElementById('ruleSuccess')?.value ?? '1';
+            const win = rules?.win ?? document.getElementById('ruleWin')?.value ?? '5';
+            const disq = rules?.disqualify ?? document.getElementById('ruleDisqualify')?.value ?? '3';
+            const mushroom = rules?.mushroom ?? document.getElementById('ruleMushroom')?.value ?? 'on';
             const timeText = time === 'unlimited' ? '無制限' : `${time}分`;
             const failText = fail === '0' ? '0点になる' : `得点 ${fail}点`;
             const disqText = disq === 'unlimited' ? 'なし' : `${disq}回`;
@@ -1790,7 +1790,65 @@
             },1000);
         });
 
-        function resetGameUIOnly() {
+        // Firebaseのリセット時刻を基準に、全端末で同時に「ルール3秒→3カウント→開始」。
+        let syncedStartTimer = null;
+        function startSyncedRuleAndCountdown(resetAt) {
+            if (syncedStartTimer) { clearInterval(syncedStartTimer); syncedStartTimer = null; }
+            const ruleConfirmOverlay = document.getElementById('ruleConfirmOverlay');
+            const overlay = document.getElementById('startCountdownOverlay');
+            const number = document.getElementById('startCountdownNumber');
+            const text = document.getElementById('startCountdownText');
+            const rules = {
+                time: document.getElementById('ruleTime').value,
+                fail: document.getElementById('ruleFail').value,
+                success: document.getElementById('ruleSuccess').value,
+                win: document.getElementById('ruleWin').value,
+                disqualify: document.getElementById('ruleDisqualify').value,
+                mushroom: document.getElementById('ruleMushroom').value
+            };
+            document.getElementById('confirmRuleTime').textContent = `⏱️ 時間：${rules.time === 'unlimited' ? '無制限' : rules.time + '分'}`;
+            document.getElementById('confirmRuleFail').textContent = `💥 かぶったら：${rules.fail === '0' ? '0点になる' : '得点 −' + Math.abs(parseInt(rules.fail) || 0)}`;
+            document.getElementById('confirmRuleSuccess').textContent = `🌱 成功したら：＋${parseInt(rules.success) || 1}点`;
+            document.getElementById('confirmRuleWin').textContent = `🏆 優勝：${parseInt(rules.win) || 5}点`;
+            document.getElementById('confirmRuleDisqualify').textContent = `❌ 失格：${rules.disqualify === 'unlimited' ? 'なし（無制限）' : rules.disqualify + '回'}`;
+            document.getElementById('confirmRuleMushroom').textContent = `🍄 キノコタイム：${rules.mushroom === 'on' ? 'ON' : 'OFF'}`;
+            ruleConfirmOverlay.classList.add('active');
+            overlay.classList.remove('active');
+            isGameStarted = false;
+            nyokkiBtn.classList.add('game-waiting');
+
+            const tick = () => {
+                const now = getServerNow();
+                const untilCountdown = Number(resetAt) + 3000 - now;
+                if (untilCountdown > 0) return;
+                ruleConfirmOverlay.classList.remove('active');
+                overlay.classList.add('active');
+                const elapsed = now - (Number(resetAt) + 3000);
+                const count = Math.floor(elapsed / 1000);
+                if (count < 3) {
+                    const n = 3 - count;
+                    number.textContent = n;
+                    text.textContent = 'ゲーム開始まで';
+                    if (n !== 3) { number.style.animation='none'; void number.offsetWidth; number.style.animation='startCountPop .7s ease-out'; playSound('countdown'); }
+                } else {
+                    clearInterval(syncedStartTimer); syncedStartTimer = null;
+                    number.textContent = 'スタート！'; text.textContent = '';
+                    playSound('start');
+                    setTimeout(() => {
+                        overlay.classList.remove('active');
+                        isGameStarted = true;
+                        nyokkiBtn.classList.remove('game-waiting');
+                        const durationSec = rules.time === 'unlimited' ? 0 : ((parseInt(rules.time) || 3) * 60);
+                        const timerStartAt = Number(resetAt) + 6000;
+                        startTimer(timerStartAt, durationSec);
+                    }, 700);
+                }
+            };
+            tick();
+            syncedStartTimer = setInterval(tick, 50);
+        }
+
+        function resetGameUIOnly(syncedResetAt = null) {
             stopMushroomTimer();
             if (mushroomInterval) { clearInterval(mushroomInterval); mushroomInterval = null; }
             mushroomReactionCounts = {};
@@ -1822,13 +1880,15 @@
             if (mushroomResultDisplayTimer) { clearTimeout(mushroomResultDisplayTimer); mushroomResultDisplayTimer = null; }
             lastMushroomResultKey = '';
             playSound('reset');
-            beginGameWithCountdown();
+            if (syncedResetAt) startSyncedRuleAndCountdown(syncedResetAt);
+            else beginGameWithCountdown();
         }
 
         async function resetGameState() {
+            const localResetAt = Date.now() + serverTimeOffset;
             if (onlineReady && roomRef) {
                 try {
-                    const resetAt = Date.now() + serverTimeOffset;
+                    const resetAt = localResetAt;
                     await roomRef.child('game').transaction(game => {
                         if (!game) game = {};
                         game.currentCount = 0;
@@ -1846,6 +1906,7 @@
                         game.resetAt = resetAt;
                         game.resetBy = myPlayerId;
                         game.chatResetAt = resetAt;
+                        game.syncedStartAt = resetAt + 3000;
                         game.mushroom = { active: false, startAt: 0, nextAt: resetAt + 30000 + Math.floor(Math.random() * 60000), counts: {}, lastResult: '', lastRanking: [], lastResultAt: 0 };
                         game.players = game.players || {};
                         Object.keys(game.players).forEach(id => {
@@ -1875,7 +1936,7 @@
                     return;
                 }
             }
-            resetGameUIOnly();
+            resetGameUIOnly(localResetAt);
         }
 
         restartBtn.addEventListener('click', () => {
@@ -1998,12 +2059,9 @@
                         mushroomMyCount.textContent = `あなた：${mushroomReactionCounts[me.id]}回`;
                         showMushroomReactionFx();
                     }
-                    if (onlineReady && roomRef) {
-                        roomRef.child('reactions').push({ name: myPlayerName, emoji: reactionEmoji, createdAt: firebase.database.ServerValue.TIMESTAMP });
-                    } else {
-                        playSound('reaction');
-                        addLogMessage(`${myPlayerName || 'あなた'}: 🍄`);
-                    }
+                    // キノコタイムの🍄はチャット／リアクションログへ送信しない。
+                    // 各端末のローカル演出とカウントだけ更新する。
+                    playSound('reaction');
                     return;
                 }
 
@@ -2267,10 +2325,11 @@
                     if (game.rules.disqualify) document.getElementById('ruleDisqualify').value = game.rules.disqualify;
                     if (game.rules.mushroom) document.getElementById('ruleMushroom').value = game.rules.mushroom;
                 }
+                updateCurrentRules(game.rules || null);
                 // 初回読み込みでは既存ゲームをリセットせず、Firebase上の進行中状態をそのまま復元。
                 // 2回目以降の新しいresetAtだけ、従来どおり3カウントを表示する。
                 const isInitialSync = previousResetAt === 0;
-                if (!isInitialSync) resetGameUIOnly();
+                if (!isInitialSync) resetGameUIOnly(incomingResetAt);
             }
 
             currentCount = Number(game.currentCount || 0);
