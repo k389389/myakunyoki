@@ -326,11 +326,11 @@
         /* ボタン画面の下を上方向へ流れるチャット */
         .floating-chat-area {
             width: 100%;
-            min-height: 58px;
-            height: auto;
+            min-height: 0;
+            height: 0;
             position: relative;
             overflow: visible;
-            margin-top: -2px;
+            margin-top: 0;
             pointer-events: none;
         }
 
@@ -921,7 +921,7 @@
         .start-countdown-overlay{display:none;position:fixed;inset:0;z-index:12000;background:rgba(30,24,20,.72);align-items:center;justify-content:center}
         .start-countdown-overlay.active{display:flex}
         .start-countdown-card{text-align:center;color:#fff}
-        .start-countdown-number{font-size:clamp(72px,22vw,150px);font-weight:900;line-height:1;animation:startCountPop .7s ease-out;text-shadow:0 8px 30px rgba(0,0,0,.35)}
+        .start-countdown-number{font-size:clamp(72px,22vw,150px);font-weight:900;line-height:1;text-shadow:0 8px 30px rgba(0,0,0,.35)}
         .start-countdown-text{margin-top:18px;font-size:clamp(20px,5vw,34px);font-weight:800}
         .rule-confirm-overlay{display:none;position:fixed;inset:0;z-index:11900;background:rgba(30,24,20,.78);align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
         .rule-confirm-overlay.active{display:flex}
@@ -1114,7 +1114,6 @@
                 <li id="confirmRuleDisqualify">❌ 失格：3回</li>
                 <li id="confirmRuleMushroom">🍄 キノコタイム：ON</li>
             </ul>
-            <button class="rule-confirm-start" id="ruleConfirmStartBtn" type="button">このルールでスタート</button>
         </div>
     </div>
 
@@ -1380,15 +1379,15 @@
             setTimeout(() => fx.remove(), 1500);
         }
 
-        function updateCurrentRules(rules = null) {
+        function updateCurrentRules() {
             const el = document.getElementById('currentRuleItems');
             if (!el) return;
-            const time = rules?.time ?? document.getElementById('ruleTime')?.value ?? '3';
-            const fail = rules?.fail ?? document.getElementById('ruleFail')?.value ?? '0';
-            const success = rules?.success ?? document.getElementById('ruleSuccess')?.value ?? '1';
-            const win = rules?.win ?? document.getElementById('ruleWin')?.value ?? '5';
-            const disq = rules?.disqualify ?? document.getElementById('ruleDisqualify')?.value ?? '3';
-            const mushroom = rules?.mushroom ?? document.getElementById('ruleMushroom')?.value ?? 'on';
+            const time = document.getElementById('ruleTime')?.value || '3';
+            const fail = document.getElementById('ruleFail')?.value || '0';
+            const success = document.getElementById('ruleSuccess')?.value || '1';
+            const win = document.getElementById('ruleWin')?.value || '5';
+            const disq = document.getElementById('ruleDisqualify')?.value || '3';
+            const mushroom = document.getElementById('ruleMushroom')?.value || 'on';
             const timeText = time === 'unlimited' ? '無制限' : `${time}分`;
             const failText = fail === '0' ? '0点になる' : `得点 ${fail}点`;
             const disqText = disq === 'unlimited' ? 'なし' : `${disq}回`;
@@ -1563,7 +1562,7 @@
 
             const timeVal = document.getElementById('ruleTime').value;
             startMushroomScheduler();
-            if (timeVal === 'unlimited' && !durationSec) {
+            if (timeVal === 'unlimited' || Number(durationSec) === 0) {
                 timerDisplay.textContent = '⏱️ ∞ 無制限';
                 return;
             }
@@ -1748,57 +1747,41 @@
             document.getElementById('confirmRuleDisqualify').textContent = `❌ 失格：${disqualifyValue === 'unlimited' ? 'なし（無制限）' : disqualifyValue + '回'}`;
             document.getElementById('confirmRuleMushroom').textContent = `🍄 キノコタイム：${mushroomValue === 'on' ? 'ON' : 'OFF'}`;
             ruleConfirmOverlay.classList.add('active');
+            setTimeout(() => {
+                if (!ruleConfirmOverlay.classList.contains('active')) return;
+                ruleConfirmOverlay.classList.remove('active');
+                const overlay = document.getElementById('startCountdownOverlay');
+                const number = document.getElementById('startCountdownNumber');
+                const text = document.getElementById('startCountdownText');
+                overlay.classList.add('active');
+                let count = 3;
+                number.textContent = count; text.textContent = 'ゲーム開始まで';
+                playSound('countdown');
+                startCountdownInterval = setInterval(() => {
+                    count--;
+                    if (count > 0) { number.textContent = count; playSound('countdown'); }
+                    else {
+                        clearInterval(startCountdownInterval); startCountdownInterval = null;
+                        number.textContent = 'スタート！'; text.textContent = ''; playSound('start');
+                        setTimeout(() => {
+                            overlay.classList.remove('active'); isGameStarted = true; nyokkiBtn.classList.remove('game-waiting');
+                            const tv = document.getElementById('ruleTime').value;
+                            startTimer(Date.now() + serverTimeOffset, tv === 'unlimited' ? 0 : ((parseInt(tv) || 3) * 60));
+                        }, 700);
+                    }
+                }, 1000);
+            }, 3000);
         }
 
-        // 「このルールでスタート」を押したら、従来どおりの3カウントを開始。
-        document.getElementById('ruleConfirmStartBtn').addEventListener('click', () => {
-            const ruleConfirmOverlay = document.getElementById('ruleConfirmOverlay');
-            ruleConfirmOverlay.classList.remove('active');
-
-            const overlay = document.getElementById('startCountdownOverlay');
-            const number = document.getElementById('startCountdownNumber');
-            const text = document.getElementById('startCountdownText');
-            overlay.classList.add('active');
-            let count = 3;
-            number.textContent = count; text.textContent = 'ゲーム開始まで';
-            playSound('countdown');
-            startCountdownInterval = setInterval(() => {
-                count--;
-                if (count > 0) {
-                    number.textContent = count;
-                    number.style.animation='none'; void number.offsetWidth; number.style.animation='startCountPop .7s ease-out';
-                    playSound('countdown');
-                } else {
-                    clearInterval(startCountdownInterval); startCountdownInterval=null;
-                    number.textContent='スタート！'; text.textContent='';
-                    playSound('start');
-                    setTimeout(() => {
-                        overlay.classList.remove('active'); isGameStarted=true; nyokkiBtn.classList.remove('game-waiting');
-                        const durationSec = (document.getElementById('ruleTime').value === 'unlimited') ? 0 : ((parseInt(document.getElementById('ruleTime').value) || 3) * 60);
-                        const timerStartAt = getServerNow();
-                        if (onlineReady && roomRef) {
-                            roomRef.child('game').transaction(game => {
-                                if (!game || game.isGameOver) return;
-                                game.timerStartAt = timerStartAt;
-                                game.timerDurationSec = durationSec;
-                                return game;
-                            });
-                        }
-                        startTimer(timerStartAt, durationSec);
-                    },700);
-                }
-            },1000);
-        });
-
-        // Firebaseのリセット時刻を基準に、全端末で同時に「ルール3秒→3カウント→開始」。
+        // Firebaseのリセット時刻を基準に、全端末で「ルール3秒表示 → 3カウント → スタート」。
         let syncedStartTimer = null;
-        function startSyncedRuleAndCountdown(resetAt) {
+        function startSyncedRuleAndCountdown(resetAt, syncedRules = null) {
             if (syncedStartTimer) { clearInterval(syncedStartTimer); syncedStartTimer = null; }
             const ruleConfirmOverlay = document.getElementById('ruleConfirmOverlay');
             const overlay = document.getElementById('startCountdownOverlay');
             const number = document.getElementById('startCountdownNumber');
             const text = document.getElementById('startCountdownText');
-            const rules = {
+            const rules = syncedRules || {
                 time: document.getElementById('ruleTime').value,
                 fail: document.getElementById('ruleFail').value,
                 success: document.getElementById('ruleSuccess').value,
@@ -1816,20 +1799,17 @@
             overlay.classList.remove('active');
             isGameStarted = false;
             nyokkiBtn.classList.add('game-waiting');
-
             const tick = () => {
                 const now = getServerNow();
-                const untilCountdown = Number(resetAt) + 3000 - now;
-                if (untilCountdown > 0) return;
+                if (now < Number(resetAt) + 3000) return;
                 ruleConfirmOverlay.classList.remove('active');
                 overlay.classList.add('active');
-                const elapsed = now - (Number(resetAt) + 3000);
-                const count = Math.floor(elapsed / 1000);
+                const count = Math.floor((now - (Number(resetAt) + 3000)) / 1000);
                 if (count < 3) {
                     const n = 3 - count;
                     number.textContent = n;
                     text.textContent = 'ゲーム開始まで';
-                    if (n !== 3) { number.style.animation='none'; void number.offsetWidth; number.style.animation='startCountPop .7s ease-out'; playSound('countdown'); }
+                    if (n !== 3) playSound('countdown');
                 } else {
                     clearInterval(syncedStartTimer); syncedStartTimer = null;
                     number.textContent = 'スタート！'; text.textContent = '';
@@ -1839,8 +1819,7 @@
                         isGameStarted = true;
                         nyokkiBtn.classList.remove('game-waiting');
                         const durationSec = rules.time === 'unlimited' ? 0 : ((parseInt(rules.time) || 3) * 60);
-                        const timerStartAt = Number(resetAt) + 6000;
-                        startTimer(timerStartAt, durationSec);
+                        startTimer(Number(resetAt) + 6000, durationSec);
                     }, 700);
                 }
             };
@@ -1848,7 +1827,7 @@
             syncedStartTimer = setInterval(tick, 50);
         }
 
-        function resetGameUIOnly(syncedResetAt = null) {
+        function resetGameUIOnly(syncedResetAt = null, syncedRules = null) {
             stopMushroomTimer();
             if (mushroomInterval) { clearInterval(mushroomInterval); mushroomInterval = null; }
             mushroomReactionCounts = {};
@@ -1880,15 +1859,14 @@
             if (mushroomResultDisplayTimer) { clearTimeout(mushroomResultDisplayTimer); mushroomResultDisplayTimer = null; }
             lastMushroomResultKey = '';
             playSound('reset');
-            if (syncedResetAt) startSyncedRuleAndCountdown(syncedResetAt);
+            if (syncedResetAt) startSyncedRuleAndCountdown(syncedResetAt, syncedRules);
             else beginGameWithCountdown();
         }
 
         async function resetGameState() {
-            const localResetAt = Date.now() + serverTimeOffset;
             if (onlineReady && roomRef) {
                 try {
-                    const resetAt = localResetAt;
+                    const resetAt = Date.now() + serverTimeOffset;
                     await roomRef.child('game').transaction(game => {
                         if (!game) game = {};
                         game.currentCount = 0;
@@ -1929,14 +1907,24 @@
                         return game;
                     });
                     lastChatResetAt = resetAt;
+                    lastAppliedResetAt = resetAt;
                     await roomRef.child('chat').remove();
+                    resetGameUIOnly(resetAt, {
+                        time: document.getElementById('ruleTime').value,
+                        fail: document.getElementById('ruleFail').value,
+                        success: document.getElementById('ruleSuccess').value,
+                        win: document.getElementById('ruleWin').value,
+                        disqualify: document.getElementById('ruleDisqualify').value,
+                        mushroom: document.getElementById('ruleMushroom').value
+                    });
+                    return;
                 } catch (err) {
                     console.error(err);
                     addLogMessage('⚠️ リセットの同期に失敗しました。もう一度お試しください。', true);
                     return;
                 }
             }
-            resetGameUIOnly(localResetAt);
+            resetGameUIOnly(Date.now() + serverTimeOffset);
         }
 
         restartBtn.addEventListener('click', () => {
@@ -2060,7 +2048,6 @@
                         showMushroomReactionFx();
                     }
                     // キノコタイムの🍄はチャット／リアクションログへ送信しない。
-                    // 各端末のローカル演出とカウントだけ更新する。
                     playSound('reaction');
                     return;
                 }
@@ -2325,11 +2312,10 @@
                     if (game.rules.disqualify) document.getElementById('ruleDisqualify').value = game.rules.disqualify;
                     if (game.rules.mushroom) document.getElementById('ruleMushroom').value = game.rules.mushroom;
                 }
-                updateCurrentRules(game.rules || null);
                 // 初回読み込みでは既存ゲームをリセットせず、Firebase上の進行中状態をそのまま復元。
                 // 2回目以降の新しいresetAtだけ、従来どおり3カウントを表示する。
                 const isInitialSync = previousResetAt === 0;
-                if (!isInitialSync) resetGameUIOnly(incomingResetAt);
+                if (!isInitialSync) resetGameUIOnly(incomingResetAt, game.rules || null);
             }
 
             currentCount = Number(game.currentCount || 0);
