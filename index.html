@@ -2187,11 +2187,20 @@
                         // かぶっていないプレイヤーには一切影響させない。
                         const kaburiPlayerIds = [...new Set([target, myPlayerId])];
 
+                        // 先に押した人には、通常押下としてすでに成功得点が入っている。
+                        // かぶりが成立した場合は、その「先に入った成功得点」を取り消してから
+                        // かぶり時の減点だけを適用する。
+                        // ただし、直前の押下自体がすでにかぶりだった場合は、成功得点は入っていないので取り消さない。
+                        const targetWasNormalSuccess = game.lastWasKaburi !== true;
+                        if (targetWasNormalSuccess && game.players[target] && !game.players[target].isDisqualified) {
+                            game.players[target].score = Math.max(0, Number(game.players[target].score || 0) - successVal);
+                        }
+
                         kaburiPlayerIds.forEach(pid => {
                             const p = game.players[pid];
                             if (!p || p.isDisqualified) return;
 
-                            // 減点：かぶったプレイヤーだけ
+                            // かぶり時は成功得点を加算せず、設定した減点だけを適用する。
                             if (failVal === "0") {
                                 p.score = 0;
                             } else {
