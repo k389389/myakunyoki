@@ -2197,6 +2197,12 @@
                             Object.keys(game.players || {}).forEach(pid => {
                                 const allPlayer = game.players[pid];
                                 if (!allPlayer || allPlayer.isDisqualified) return;
+
+                                // かぶりが発生したら、得点だけでなく
+                                // 「失格の回数」も全プレイヤーに同じように加算する。
+                                allPlayer.disqualifications =
+                                    Number(allPlayer.disqualifications || 0) + 1;
+
                                 if (failVal === "0") {
                                     allPlayer.score = 0;
                                 } else {
