@@ -1832,6 +1832,7 @@
                 disqualify: document.getElementById('ruleDisqualify').value,
                 mushroom: document.getElementById('ruleMushroom').value
             };
+            let lastCountdownNumber = null;
             document.getElementById('confirmRuleTime').textContent = `⏱️ 時間：${rules.time === 'unlimited' ? '無制限' : rules.time + '分'}`;
             document.getElementById('confirmRuleFail').textContent = `💥 かぶったら：${rules.fail === '0' ? '0点になる' : '得点 −' + Math.abs(parseInt(rules.fail) || 0)}`;
             document.getElementById('confirmRuleSuccess').textContent = `🌱 成功したら：＋${parseInt(rules.success) || 1}点`;
@@ -1854,9 +1855,20 @@
                 const count = Math.floor(elapsed / 1000);
                 if (count < 3) {
                     const n = 3 - count;
-                    number.textContent = n;
                     text.textContent = 'ゲーム開始まで';
-                    if (n !== 3) { number.style.animation='none'; void number.offsetWidth; number.style.animation='startCountPop .7s ease-out'; playSound('countdown'); }
+                    // 50msごとの同期チェックで同じ数字を何度も再描画しない。
+                    // これで「2」「1」の点滅・ちらつきを防ぐ。
+                    if (n !== lastCountdownNumber) {
+                        number.textContent = n;
+                        number.classList.remove('start-label');
+                        if (lastCountdownNumber !== null) {
+                            number.style.animation='none';
+                            void number.offsetWidth;
+                            number.style.animation='startCountPop .7s ease-out';
+                            playSound('countdown');
+                        }
+                        lastCountdownNumber = n;
+                    }
                 } else {
                     clearInterval(syncedStartTimer); syncedStartTimer = null;
                     number.textContent = 'スタート！'; text.textContent = '';
@@ -1894,9 +1906,8 @@
             if (mushroomInterval) { clearInterval(mushroomInterval); mushroomInterval = null; }
             mushroomReactionCounts = {};
             currentCount = 0;
-            maxCount = 0;
             currentCountSpan.textContent = "0";
-            maxCountSpan.textContent = "0";
+            maxCountSpan.textContent = maxCount;
             myKaburiCount = 0;
             isDisqualified = false;
 
@@ -1933,7 +1944,8 @@
                     await roomRef.child('game').transaction(game => {
                         if (!game) game = {};
                         game.currentCount = 0;
-                        game.maxCount = 0;
+                        // 最高到達点はゲームをリセットしても保持する。
+                        game.maxCount = Number(game.maxCount || 0);
                         game.toggleState = false;
                         game.lastPressAt = 0;
                         game.lastPlayerId = '';
@@ -2136,7 +2148,7 @@
                 nyokkiLockTimer = setTimeout(() => {
                     nyokkiLockTimer = null;
                     updateNyokkiLock(game);
-                }, Math.min(remaining + 50, 2100));
+                }, Math.min(remaining + 50, 1100));
             } else {
                 nyokkiBtn.classList.remove('nyokki-locked');
                 if (!isMushroomTime) {
@@ -2300,7 +2312,7 @@
 
         // Firebaseオンライン対戦本体
         const KABURI_WINDOW_MS = 200;
-        const NYOKKI_COOLDOWN_MS = 2000;
+        const NYOKKI_COOLDOWN_MS = 1000;
         const KABURI_GLOBAL_LOCK_MS = 1500;
         const firebaseConfig = {
             // Firebaseコンソール → プロジェクトの設定 → ウェブアプリの設定値を入れてください。
