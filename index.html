@@ -4357,10 +4357,10 @@
 
       const oldPos = Number(gameState.positions[eventTeamIndex] || 0);
       const goalIndex = totalTiles - 1;
-      const rank4TeamIndex = rank === 4 ? Number(gameState.kmyakBattleRank4TeamIndex) : eventTeamIndex;
+      const rank4TeamIndex = Number(gameState.kmyakBattleRank4TeamIndex);
       const moveOldPos = Number(gameState.positions[rank4TeamIndex] || 0);
       const forwardTarget = rank === 1 ? Math.min(goalIndex, oldPos + 2) : oldPos;
-      const backTarget = rank === 4 ? Math.max(0, moveOldPos - 2) : oldPos;
+      const backTarget = (rank4TeamIndex >= 0 && rank4TeamIndex < 4) ? Math.max(0, moveOldPos - 2) : moveOldPos;
       const { ref, runTransaction, db } = window.dbRef;
 
       // 移動アニメーションを先に共有。ゲーム状態そのものは下のトランザクションで確定する。
@@ -4386,11 +4386,10 @@
 
         const positions = Array.isArray(current.positions) ? [...current.positions] : [0,0,0,0];
         if (rank === 1) positions[eventTeamIndex] = forwardTarget;
-        else if (rank === 4) {
-          const rank4TeamIndex = Number(current.kmyakBattleRank4TeamIndex);
-          if (Number.isInteger(rank4TeamIndex) && rank4TeamIndex >= 0 && rank4TeamIndex < 4) {
-            positions[rank4TeamIndex] = Math.max(0, Number(positions[rank4TeamIndex] || 0) - 2);
-          }
+        // 4位のチームは、15マス目に止まったチームとは無関係に2マス戻る。
+        const rank4TeamIndex = Number(current.kmyakBattleRank4TeamIndex);
+        if (Number.isInteger(rank4TeamIndex) && rank4TeamIndex >= 0 && rank4TeamIndex < 4) {
+          positions[rank4TeamIndex] = Math.max(0, Number(positions[rank4TeamIndex] || 0) - 2);
         }
 
         const skipTurns = Array.isArray(current.skipTurns) ? [...current.skipTurns] : [false,false,false,false];
@@ -4497,11 +4496,11 @@
       const currentPos = Number(positions[eventTeamIndex] || 0);
       if (rank === 1) {
         positions[eventTeamIndex] = Math.min(goalIndex, currentPos + 2);
-      } else if (rank === 4) {
-        const rank4TeamIndex = Number(current.kmyakBattleRank4TeamIndex);
-        if (Number.isInteger(rank4TeamIndex) && rank4TeamIndex >= 0 && rank4TeamIndex < 4) {
-          positions[rank4TeamIndex] = Math.max(0, Number(positions[rank4TeamIndex] || 0) - 2);
-        }
+      }
+      // 4位のチームは、15マス目に止まったチームとは無関係に2マス戻る。
+      const rank4TeamIndex = Number(current.kmyakBattleRank4TeamIndex);
+      if (Number.isInteger(rank4TeamIndex) && rank4TeamIndex >= 0 && rank4TeamIndex < 4) {
+        positions[rank4TeamIndex] = Math.max(0, Number(positions[rank4TeamIndex] || 0) - 2);
       }
 
       const skipTurns = Array.isArray(current.skipTurns) ? [...current.skipTurns] : [false,false,false,false];
