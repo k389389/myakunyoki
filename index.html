@@ -324,13 +324,13 @@
             background: #f0ebe4;
         }
 
-        /* ボタン画面の下から、ミャクのボタンに重なって上へ流れるチャット */
+        /* チャットはミャクのボタンに重なって、タイマー付近まで上へ流す */
         .floating-chat-area {
             position: fixed;
             left: 50%;
-            bottom: 105px;
+            bottom: 80px;
             width: min(92vw, 520px);
-            height: 75vh;
+            height: calc(100vh - 160px);
             transform: translateX(-50%);
             overflow: visible;
             margin: 0;
@@ -373,11 +373,11 @@
                 opacity: 1;
             }
             75% {
-                transform: translate(-50%, -68vh);
+                transform: translate(-50%, -75%);
                 opacity: 0.95;
             }
             100% {
-                transform: translate(-50%, -75vh);
+                transform: translate(-50%, -100%);
                 opacity: 0;
             }
         }
@@ -2085,7 +2085,7 @@
             // アニメーション終了後にDOMから削除
             setTimeout(() => {
                 floatingMsg.remove();
-            }, 3900);
+            }, 4900);
         }
 
 
