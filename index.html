@@ -344,7 +344,9 @@
             bottom: 0;
             transform: translate(-50%, 18px);
             width: auto;
-            max-width: 92%;
+            width: min(84vw, 520px);
+            max-width: 84vw;
+            box-sizing: border-box;
             padding: 7px 13px;
             border-radius: 18px;
             background: rgba(255,255,255,0.96);
@@ -359,7 +361,7 @@
             word-break: break-word;
             text-overflow: clip;
             opacity: 0;
-            animation: chatFloatUp 4.8s ease-out forwards;
+            animation: chatFloatUp 6.5s ease-out forwards;
             z-index: 10001;
         }
 
@@ -2074,7 +2076,8 @@
 
             const floatingMsg = document.createElement('div');
             floatingMsg.className = 'floating-chat-message';
-            floatingMsg.style.left = `${7 + Math.random() * 86}%`;
+            // 長文が画面右端に寄って縦長にならないよう、常に中央付近から流す。
+            floatingMsg.style.left = '50%';
             if (isAlert) {
                 floatingMsg.style.color = '#b83d53';
                 floatingMsg.style.borderColor = '#e6b8c1';
@@ -2085,7 +2088,7 @@
             // アニメーション終了後にDOMから削除
             setTimeout(() => {
                 floatingMsg.remove();
-            }, 4900);
+            }, 6600);
         }
 
 
