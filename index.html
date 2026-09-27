@@ -240,6 +240,7 @@
             width: 150px; height: 100px; border: 2px solid #e0dbd1; border-radius: 20px;
             background: #faf8f5; font-size: 52px; cursor: pointer;
             -webkit-tap-highlight-color: transparent; transition: transform 0.06s ease;
+            pointer-events: auto;
         }
         .mushroom-reaction-btn:active { transform: scale(0.88); }
 
@@ -1157,7 +1158,7 @@
             <h2 class="mushroom-title">🍄 キノコターイム！！</h2>
             <div class="mushroom-countdown" id="mushroomCountdown">残り 5秒</div>
             <p class="mushroom-count">🍄をできるだけたくさん押そう！<br>いちばん多く押したプレイヤーが＋1点！</p>
-            <button class="mushroom-reaction-btn" id="mushroomReactionBtn" type="button">🍄</button>
+            <button class="mushroom-reaction-btn reaction-btn" id="mushroomReactionBtn" type="button" data-reaction="🍄">🍄</button>
             <p id="mushroomMyCount" style="margin:10px 0 0;font-weight:bold;color:#b83d53;">あなた：0回</p>
         </div>
     </div>
