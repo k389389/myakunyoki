@@ -343,9 +343,8 @@
             left: 50%;
             bottom: 0;
             transform: translate(-50%, 18px);
-            width: auto;
-            width: min(84vw, 520px);
-            max-width: 84vw;
+            width: min(40vw, 300px);
+            max-width: 40vw;
             box-sizing: border-box;
             padding: 7px 13px;
             border-radius: 18px;
@@ -2076,8 +2075,21 @@
 
             const floatingMsg = document.createElement('div');
             floatingMsg.className = 'floating-chat-message';
-            // 長文が画面右端に寄って縦長にならないよう、常に中央付近から流す。
-            floatingMsg.style.left = '50%';
+            // 3レーン方式：短文は左右にも流し、長文は中央寄りにする。
+            // 直前と同じレーンを避けて、チャット同士が重なりにくくする。
+            const isLongChat = String(text).replace(/\s/g, '').length >= 14;
+            const shortLanes = ['20%', '50%', '80%'];
+            const longLanes = ['32%', '50%', '68%'];
+            const lanes = isLongChat ? longLanes : shortLanes;
+            const previousLane = window.__lastFloatingChatLane || '';
+            const availableLanes = lanes.filter(lane => lane !== previousLane);
+            const selectedLane = availableLanes[Math.floor(Math.random() * availableLanes.length)] || lanes[0];
+            floatingMsg.style.left = selectedLane;
+            window.__lastFloatingChatLane = selectedLane;
+            if (isLongChat) {
+                floatingMsg.style.width = 'min(62vw, 460px)';
+                floatingMsg.style.maxWidth = '62vw';
+            }
             if (isAlert) {
                 floatingMsg.style.color = '#b83d53';
                 floatingMsg.style.borderColor = '#e6b8c1';
