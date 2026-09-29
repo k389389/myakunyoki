@@ -1483,19 +1483,6 @@
 
         function finishMushroomTime() {
             if (!isMushroomTime) return;
-
-            // 端末ごとの通信遅延で、5秒ちょうど付近の🍄リアクションが
-            // 別端末の終了処理に先に消されないよう、確定処理だけ少し待つ。
-            // この間もisMushroomTimeはtrueのままなので、🍄を受け付けられる。
-            if (!finishMushroomTime._pending) {
-                finishMushroomTime._pending = true;
-                setTimeout(() => {
-                    finishMushroomTime._pending = false;
-                    finishMushroomTime();
-                }, 350);
-                return;
-            }
-
             clearMushroomLocalTimers();
             isMushroomTime = false;
             mushroomOverlay.classList.remove('active');
@@ -1509,7 +1496,7 @@
                     if (!game || !game.mushroom || !game.mushroom.active) return;
                     // 5秒の終了時刻を過ぎた後のリアクションは結果に含めない。
                     const mushroomStartAt = Number(game.mushroom.startAt || 0);
-                    if (mushroomStartAt > 0 && getServerNow() < mushroomStartAt + 5300) return;
+                    if (mushroomStartAt > 0 && getServerNow() < mushroomStartAt + 5000) return;
                     const counts = game.mushroom.counts || {};
                     const entries = Object.entries(counts);
                     const maxReactions = entries.length ? Math.max(...entries.map(([, c]) => Number(c || 0))) : 0;
@@ -1989,6 +1976,9 @@
                         game.lastWasKaburi = false;
                         game.lastKaburiPlayerId = '';
                         game.lastKaburiPlayerIds = [];
+                        game.kaburiGroupStartedAt = 0;
+                        game.kaburiGroupPlayerIds = [];
+                        game.kaburiGroupPenalizedPlayerIds = [];
                         game.lastKaburiAt = 0;
                         game.pendingWin = null;
                         game.lockedUntil = 0;
@@ -2149,7 +2139,7 @@
                         roomRef.child('game').transaction(game => {
                             if (!game || !game.mushroom || !game.mushroom.active || !game.players || !game.players[myPlayerId]) return;
                             const startAt = Number(game.mushroom.startAt || 0);
-                            if (!startAt || getServerNow() >= startAt + 5300) return;
+                            if (!startAt || getServerNow() >= startAt + 5000) return;
                             game.mushroom.counts = game.mushroom.counts || {};
                             game.mushroom.counts[myPlayerId] = Number(game.mushroom.counts[myPlayerId] || 0) + 1;
                             return game;
@@ -2247,14 +2237,18 @@
                     const myPlayerData = game.players && game.players[myPlayerId];
                     if (!myPlayerData || myPlayerData.isDisqualified) return;
 
-                    // かぶり判定中（直前の押下から0.2秒以内）は、全員を同じ「かぶりグループ」に
-                    // 参加させるため、1.5秒の全体ロックを一時的に無視する。
-                    const withinKaburiWindow = game.lastPressAt &&
-                        game.lastPlayerId &&
-                        game.lastPlayerId !== myPlayerId &&
-                        (now - Number(game.lastPressAt) <= KABURI_WINDOW_MS);
+                    // かぶり判定は「直前の押下」ではなく、最初の押下から0.2秒間を
+                    // ひとつのグループとして判定する。A→B→CならA・B・C全員が同じグループ。
+                    const kaburiGroupStartedAt = Number(game.kaburiGroupStartedAt || 0);
+                    const kaburiGroupPlayerIds = Array.isArray(game.kaburiGroupPlayerIds)
+                        ? game.kaburiGroupPlayerIds
+                        : [];
+                    const withinKaburiWindow = kaburiGroupStartedAt > 0 &&
+                        (now - kaburiGroupStartedAt <= KABURI_WINDOW_MS) &&
+                        kaburiGroupPlayerIds.length > 0 &&
+                        !kaburiGroupPlayerIds.includes(myPlayerId);
                     if (Number(game.lockedUntil || 0) > now && !withinKaburiWindow) return;
-                    if (Number(myPlayerData.nyokkiCooldownUntil || 0) > now) return;
+                    if (Number(myPlayerData.nyokkiCooldownUntil || 0) > now && !withinKaburiWindow) return;
 
                     const kaburi = withinKaburiWindow;
 
@@ -2263,46 +2257,35 @@
                     const winTarget = parseInt(document.getElementById('ruleWin').value);
                     const disqualifyVal = document.getElementById('ruleDisqualify').value;
 
-                    // 「かぶり」は0.2秒以内に別プレイヤーが押した場合のみ。
-                    // ルール②〜⑤の数値・判定方法は元ゲームの設定をそのまま使用。
+                    // 0.2秒以内に入った全員を同じ「かぶりグループ」にまとめる。
+                    // 一度ペナルティを受けたメンバーには、後からC・Dが入ってきても
+                    // もう一度減点・失格回数加算をしない。
                     if (kaburi) {
-                        const target = game.lastPlayerId;
-                        const targetPlayer = game.players && game.players[target];
                         const currentPlayer = game.players && game.players[myPlayerId];
+                        if (!currentPlayer || currentPlayer.isDisqualified) return game;
 
-                        if (!targetPlayer || !currentPlayer ||
-                            targetPlayer.isDisqualified || currentPlayer.isDisqualified) {
-                            return game;
-                        }
+                        const groupIds = [...new Set([...kaburiGroupPlayerIds, myPlayerId])];
+                        const penalizedIds = Array.isArray(game.kaburiGroupPenalizedPlayerIds)
+                            ? [...new Set(game.kaburiGroupPenalizedPlayerIds)]
+                            : [];
+                        const newPenaltyIds = groupIds.filter(pid => !penalizedIds.includes(pid));
 
-                        // 今回実際にかぶった2人だけをペナルティ対象にする。
-                        // かぶっていないプレイヤーには一切影響させない。
-                        const kaburiPlayerIds = [...new Set([target, myPlayerId])];
-
-                        // 先に押した人には、通常押下としてすでに成功得点が入っている。
-                        // かぶりが成立した場合は、その「先に入った成功得点」を取り消してから
-                        // かぶり時の減点だけを適用する。
-                        // ただし、直前の押下自体がすでにかぶりだった場合は、成功得点は入っていないので取り消さない。
+                        // 最初のAが通常押下として入れた成功得点だけを、かぶり成立時に取り消す。
+                        // Aが優勝点到達待ちなら、保留中の優勝も取り消す。
+                        const target = kaburiGroupPlayerIds[0];
                         const targetWasPendingWin = !!(game.pendingWin && game.pendingWin.playerId === target);
+                        if (targetWasPendingWin) game.pendingWin = null;
 
-                        // 優勝点到達待ちのプレイヤーが0.2秒以内にかぶった場合は、
-                        // 保留していた「優勝候補」そのものを取り消す。
-                        // これを消さないと、かぶり処理の後に保留処理が実行され、
-                        // 減点・失格になった後でも優勝メッセージが出てしまう。
-                        if (targetWasPendingWin) {
-                            game.pendingWin = null;
-                        }
-
-                        const targetWasNormalSuccess = game.lastWasKaburi !== true && !targetWasPendingWin;
-                        if (targetWasNormalSuccess && game.players[target] && !game.players[target].isDisqualified) {
+                        const groupJustFormed = !game.lastWasKaburi;
+                        if (groupJustFormed && target && !targetWasPendingWin &&
+                            game.players[target] && !game.players[target].isDisqualified) {
                             game.players[target].score = Math.max(0, Number(game.players[target].score || 0) - successVal);
                         }
 
-                        kaburiPlayerIds.forEach(pid => {
-                            const p = game.players[pid];
+                        newPenaltyIds.forEach(pid => {
+                            const p = game.players && game.players[pid];
                             if (!p || p.isDisqualified) return;
 
-                            // かぶり時は成功得点を加算せず、設定した減点だけを適用する。
                             if (failVal === "0") {
                                 p.score = 0;
                             } else {
@@ -2310,10 +2293,8 @@
                                 p.score = Math.max(0, Number(p.score || 0) + deduct);
                             }
 
-                            // 失格回数：かぶったプレイヤーだけ +1
                             p.kaburiCount = Number(p.kaburiCount || 0) + 1;
 
-                            // 設定回数に達したら、そのプレイヤーだけ失格
                             if (disqualifyVal !== "unlimited") {
                                 const limitCount = parseInt(disqualifyVal);
                                 if (limitCount > 0 && p.kaburiCount >= limitCount) {
@@ -2328,9 +2309,12 @@
                         game.lastPressAt = now;
                         game.lastPlayerId = myPlayerId;
                         game.lastWasKaburi = true;
-                        game.lastKaburiPlayerId = target;
-                        game.lastKaburiPlayerIds = kaburiPlayerIds;
+                        game.lastKaburiPlayerId = groupIds[groupIds.length - 1] || myPlayerId;
+                        game.lastKaburiPlayerIds = groupIds;
                         game.lastKaburiAt = now;
+                        game.kaburiGroupStartedAt = kaburiGroupStartedAt;
+                        game.kaburiGroupPlayerIds = groupIds;
+                        game.kaburiGroupPenalizedPlayerIds = [...new Set([...penalizedIds, ...newPenaltyIds])];
                         game.lockedUntil = now + KABURI_GLOBAL_LOCK_MS;
                         return game;
                     }
@@ -2341,6 +2325,9 @@
                     game.lastPressAt = now;
                     game.lastPlayerId = myPlayerId;
                     game.lastWasKaburi = false;
+                    game.kaburiGroupStartedAt = now;
+                    game.kaburiGroupPlayerIds = [myPlayerId];
+                    game.kaburiGroupPenalizedPlayerIds = [];
                     game.lockedUntil = 0;
                     if (game.players && game.players[myPlayerId]) {
                         game.players[myPlayerId].nyokkiCooldownUntil = now + NYOKKI_COOLDOWN_MS;
@@ -2665,6 +2652,9 @@
                         lastWasKaburi: false,
                         lastKaburiPlayerId: '',
                         lastKaburiPlayerIds: [],
+                        kaburiGroupStartedAt: 0,
+                        kaburiGroupPlayerIds: [],
+                        kaburiGroupPenalizedPlayerIds: [],
                         lastKaburiAt: 0,
                         lockedUntil: 0,
                         resetAt: 0,
