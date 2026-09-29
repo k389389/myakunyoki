@@ -2257,16 +2257,31 @@
                         const currentPlayer = game.players && game.players[actorId];
                         if (!targetPlayer || !currentPlayer || targetPlayer.isDisqualified || currentPlayer.isDisqualified) return game;
 
-                        const kaburiPlayerIds = [...new Set([target, actorId])];
-                        const targetWasPendingWin = !!(game.pendingWin && game.pendingWin.playerId === target);
-                        if (targetWasPendingWin) game.pendingWin = null;
+                        // 3人以上が同じ0.2秒以内に押した場合も、全員を1つのかぶりグループとして扱う。
+                        // 判定時間はグループ最初の押下から0.2秒で固定し、連続押下で延長しない。
+                        const groupStartAt = Number(game.kaburiGroupStartedAt || game.lastPressAt || now);
+                        if (now - groupStartAt > KABURI_WINDOW_MS) return game;
 
-                        const targetWasNormalSuccess = game.lastWasKaburi !== true && !targetWasPendingWin;
+                        const wasExistingKaburiGroup = game.lastWasKaburi === true && Array.isArray(game.lastKaburiPlayerIds) && game.lastKaburiPlayerIds.length > 0;
+                        const previousKaburiIds = wasExistingKaburiGroup ? game.lastKaburiPlayerIds : [target];
+                        const kaburiPlayerIds = [...new Set([...previousKaburiIds, actorId])];
+
+                        // 最初のプレイヤーが優勝点到達待ちなら、その保留を取り消す。
+                        const targetWasPendingWin = !!(game.pendingWin && game.pendingWin.playerId === target);
+                        if (game.pendingWin && kaburiPlayerIds.includes(game.pendingWin.playerId)) {
+                            game.pendingWin = null;
+                        }
+
+                        // 最初の2人がかぶった場合だけ、先に入った成功得点を取り消す。
+                        // 優勝点到達待ちだった場合は、まだ成功得点を確定していないので取り消さない。
+                        const targetWasNormalSuccess = !wasExistingKaburiGroup && !targetWasPendingWin;
                         if (targetWasNormalSuccess && game.players[target] && !game.players[target].isDisqualified) {
                             game.players[target].score = Math.max(0, Number(game.players[target].score || 0) - successVal);
                         }
 
-                        kaburiPlayerIds.forEach(pid => {
+                        // 初回のかぶりなら2人、3人目以降なら新しく入った人だけを処理する。
+                        const playersToPenalize = targetWasNormalSuccess ? [target, actorId] : [actorId];
+                        playersToPenalize.forEach(pid => {
                             const p = game.players[pid];
                             if (!p || p.isDisqualified) return;
                             if (failVal === '0') p.score = 0;
@@ -2286,6 +2301,7 @@
                         game.lastKaburiPlayerId = target;
                         game.lastKaburiPlayerIds = kaburiPlayerIds;
                         game.lastKaburiAt = now;
+                        game.kaburiGroupStartedAt = groupStartAt;
                         game.lockedUntil = now + KABURI_GLOBAL_LOCK_MS;
                         return game;
                     }
@@ -2459,61 +2475,39 @@
             if (!cpuIds.length) { clearCpuTimers(); return; }
 
             // CPUは連打しすぎないよう、通常の押下は約2.5〜4.5秒に1回。
-            // その代わり、直前の押下に反応して0.2秒以内に押すことがあり、
-            // CPU同士・CPUと人間のどちらでも同じ「かぶり」判定が発生する。
+            // CPUが押した後は20%の確率で別のCPUも0.2秒以内に押し、CPU同士がかぶる。
+            // 人間プレイヤーは特別に追いかけず、実際に同じタイミングで押した場合だけ
+            // 通常の0.2秒かぶり判定に入る。
             if (!game.mushroom?.active && !cpuTurnTimer && !cpuKaburiTimer) {
-                const recentPressAt = Number(game.lastPressAt || 0);
-                const recentPlayerId = game.lastPlayerId || '';
-                const recentAge = getServerNow() - recentPressAt;
-                const recentPressIsHuman = recentPlayerId && !String(recentPlayerId).startsWith('cpu_');
-                const shouldReactToRecentHuman = recentPressIsHuman && recentAge >= 0 && recentAge <= KABURI_WINDOW_MS && Math.random() < 0.45;
-
-                if (shouldReactToRecentHuman) {
-                    const cpuId = cpuIds[Math.floor(Math.random() * cpuIds.length)];
-                    cpuKaburiTimer = setTimeout(async () => {
-                        cpuKaburiTimer = null;
-                        const latestSnap = await roomRef.child('game').once('value');
-                        const latestGame = latestSnap.val();
-                        if (latestGame && !latestGame.isGameOver && latestGame.timerStartAt && !latestGame.mushroom?.active) {
+                cpuTurnTimer = setTimeout(async () => {
+                    cpuTurnTimer = null;
+                    const snap = await roomRef.child('game').once('value');
+                    const latest = snap.val();
+                    if (latest && !latest.isGameOver && latest.timerStartAt && !latest.mushroom?.active) {
+                        const ids = getCpuPlayerIds(latest);
+                        if (ids.length) {
+                            const cpuId = ids[Math.floor(Math.random() * ids.length)];
                             await performNyokkiPress(cpuId, true);
-                        }
-                        scheduleCpuActions(latestGame || game);
-                    }, 60 + Math.floor(Math.random() * 100));
-                } else {
-                    cpuTurnTimer = setTimeout(async () => {
-                        cpuTurnTimer = null;
-                        const snap = await roomRef.child('game').once('value');
-                        const latest = snap.val();
-                        if (latest && !latest.isGameOver && latest.timerStartAt && !latest.mushroom?.active) {
-                            const ids = getCpuPlayerIds(latest);
-                            if (ids.length) {
-                                const cpuId = ids[Math.floor(Math.random() * ids.length)];
-                                const committed = await performNyokkiPress(cpuId, true);
 
-                                // CPUが押したときも、別CPUが0.2秒以内に追いかけることがある。
-                                // これによりCPU同士のかぶりも実際に発生する。
-                                if (ids.length >= 2 && Math.random() < 0.80 && !cpuKaburiTimer) {
-                                    // Firebase通信の往復時間で0.2秒を超えてしまわないよう、
-                                    // 2人目のCPUは最新状態を読み直してからではなく、すぐに押す。
-                                    // performNyokkiPress側がサーバー上のlastPressAtを基準に0.2秒を判定する。
-                                    const otherIds = ids.filter(id => id !== cpuId);
-                                    const otherCpuId = otherIds[Math.floor(Math.random() * otherIds.length)];
-                                    cpuKaburiTimer = setTimeout(async () => {
-                                        cpuKaburiTimer = null;
-                                        if (!roomRef) return;
-                                        const latestGameSnap = await roomRef.child('game').once('value');
-                                        const latestGame = latestGameSnap.val();
-                                        if (latestGame && !latestGame.isGameOver && latestGame.timerStartAt && !latestGame.mushroom?.active) {
-                                            await performNyokkiPress(otherCpuId, true);
-                                        }
-                                        scheduleCpuActions(latestGame || latest);
-                                    }, 20);
-                                }
+                            // CPUが押した後、20%の確率で別CPUも同時に押す。
+                            // 2回目も同じperformNyokkiPressを通すため、
+                            // 人間同士・人間とCPUと同じ0.2秒のかぶり判定になる。
+                            if (ids.length >= 2 && Math.random() < 0.20 && !cpuKaburiTimer) {
+                                const otherIds = ids.filter(id => id !== cpuId);
+                                const otherCpuId = otherIds[Math.floor(Math.random() * otherIds.length)];
+                                cpuKaburiTimer = setTimeout(async () => {
+                                    cpuKaburiTimer = null;
+                                    if (roomRef) {
+                                        await performNyokkiPress(otherCpuId, true);
+                                    }
+                                    const latestGameSnap = await roomRef.child('game').once('value');
+                                    scheduleCpuActions(latestGameSnap.val() || latest);
+                                }, 20);
                             }
                         }
-                        scheduleCpuActions(latest || game);
-                    }, 2500 + Math.floor(Math.random() * 2000));
-                }
+                    }
+                    if (!cpuKaburiTimer) scheduleCpuActions(latest || game);
+                }, 2500 + Math.floor(Math.random() * 2000));
             }
 
             if (game.mushroom?.active && !cpuMushroomTimer) {
