@@ -324,6 +324,7 @@
         }
 
         /* ボタン画面の下を上方向へ流れるチャット */
+        /* チャットは3レーンに分散し、下から上へ流す。 */
         .floating-chat-area {
             width: 100%;
             min-height: 0;
@@ -336,12 +337,11 @@
 
         .floating-chat-message {
             position: absolute;
-            left: 50%;
             bottom: 2px;
-            transform: translate(-50%, 0);
-            width: auto;
-            max-width: 92%;
-            padding: 7px 13px;
+            transform: translate(-50%, 18px);
+            width: 30%;
+            max-width: 30%;
+            padding: 7px 10px;
             border-radius: 18px;
             background: rgba(255,255,255,0.96);
             border: 1px solid #e0dbd1;
@@ -2037,6 +2037,7 @@
         const chatMessages = document.getElementById('chatMessages');
 
         const floatingChatArea = document.getElementById('floatingChatArea');
+        let floatingChatLastLane = -1;
 
         function addLogMessage(text, isAlert = false) {
             const allowFloatingDisplay = !resultModal.classList.contains('active');
@@ -2073,7 +2074,14 @@
 
             const floatingMsg = document.createElement('div');
             floatingMsg.className = 'floating-chat-message';
-            floatingMsg.style.left = `${7 + Math.random() * 86}%`;
+            // 3レーン（左・中央・右）に分散。同じレーンが連続しないようにする。
+            const lanes = [16.5, 50, 83.5];
+            let lane = Math.floor(Math.random() * lanes.length);
+            if (lanes.length > 1 && lane === floatingChatLastLane) {
+                lane = (lane + 1 + Math.floor(Math.random() * (lanes.length - 1))) % lanes.length;
+            }
+            floatingChatLastLane = lane;
+            floatingMsg.style.left = `${lanes[lane]}%`;
             if (isAlert) {
                 floatingMsg.style.color = '#b83d53';
                 floatingMsg.style.borderColor = '#e6b8c1';
