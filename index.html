@@ -2386,6 +2386,7 @@
         const CPU_PLAYER_NAMES = ['CPU1', 'CPU2', 'CPU3'];
         let cpuTurnTimer = null;
         let cpuMushroomTimer = null;
+        let cpuKaburiTimer = null;
         let lastCpuGameStartAt = 0;
 
         function getHumanPlayerIds(game) {
@@ -2440,6 +2441,7 @@
         function clearCpuTimers() {
             if (cpuTurnTimer) { clearTimeout(cpuTurnTimer); cpuTurnTimer = null; }
             if (cpuMushroomTimer) { clearTimeout(cpuMushroomTimer); cpuMushroomTimer = null; }
+            if (cpuKaburiTimer) { clearTimeout(cpuKaburiTimer); cpuKaburiTimer = null; }
         }
 
         function scheduleCpuActions(game) {
@@ -2466,6 +2468,22 @@
                         if (ids.length) {
                             const cpuId = ids[Math.floor(Math.random() * ids.length)];
                             await performNyokkiPress(cpuId, true);
+
+                            // CPU同士も人間と同じ0.2秒の「かぶり」判定に入るよう、
+                            // 一定確率で別CPUを直後（0.2秒以内）に押させる。
+                            if (ids.length >= 2 && Math.random() < 0.35 && !cpuKaburiTimer) {
+                                const otherIds = ids.filter(id => id !== cpuId);
+                                const otherCpuId = otherIds[Math.floor(Math.random() * otherIds.length)];
+                                cpuKaburiTimer = setTimeout(async () => {
+                                    cpuKaburiTimer = null;
+                                    const latestSnap = await roomRef.child('game').once('value');
+                                    const latestGame = latestSnap.val();
+                                    if (latestGame && !latestGame.isGameOver && latestGame.timerStartAt && !latestGame.mushroom?.active) {
+                                        await performNyokkiPress(otherCpuId, true);
+                                    }
+                                    scheduleCpuActions(latestGame || game);
+                                }, 70 + Math.floor(Math.random() * 100));
+                            }
                         }
                     }
                     scheduleCpuActions(latest || game);
