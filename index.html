@@ -323,25 +323,25 @@
             background: #f0ebe4;
         }
 
-        /* ボタン画面の下を上方向へ流れるチャット */
-        /* チャットは3レーンに分散し、下から上へ流す。 */
+        /* チャット入力欄からミャクボタンを通り、現在の数／最高到達点付近まで一直線に上昇 */
         .floating-chat-area {
             width: 100%;
-            min-height: 0;
             height: 0;
             position: relative;
             overflow: visible;
             margin-top: -2px;
             pointer-events: none;
+            z-index: 20;
         }
 
         .floating-chat-message {
             position: absolute;
+            left: 50%;
             bottom: 2px;
             transform: translate(-50%, 18px);
-            width: 30%;
-            max-width: 30%;
-            padding: 7px 10px;
+            width: auto;
+            max-width: 92%;
+            padding: 7px 13px;
             border-radius: 18px;
             background: rgba(255,255,255,0.96);
             border: 1px solid #e0dbd1;
@@ -355,7 +355,7 @@
             word-break: break-word;
             text-overflow: clip;
             opacity: 0;
-            animation: chatFloatUp 3.8s ease-out forwards;
+            animation: chatFloatUp 6.5s linear forwards;
             z-index: 20;
         }
 
@@ -364,16 +364,16 @@
                 transform: translate(-50%, 18px);
                 opacity: 0;
             }
-            12% {
+            8% {
                 transform: translate(-50%, 0);
                 opacity: 1;
             }
-            68% {
-                transform: translate(-50%, -25px);
-                opacity: 0.95;
+            88% {
+                transform: translate(-50%, -260px);
+                opacity: 1;
             }
             100% {
-                transform: translate(-50%, -58px);
+                transform: translate(-50%, -290px);
                 opacity: 0;
             }
         }
@@ -2037,7 +2037,6 @@
         const chatMessages = document.getElementById('chatMessages');
 
         const floatingChatArea = document.getElementById('floatingChatArea');
-        let floatingChatLastLane = -1;
 
         function addLogMessage(text, isAlert = false) {
             const allowFloatingDisplay = !resultModal.classList.contains('active');
@@ -2074,14 +2073,7 @@
 
             const floatingMsg = document.createElement('div');
             floatingMsg.className = 'floating-chat-message';
-            // 3レーン（左・中央・右）に分散。同じレーンが連続しないようにする。
-            const lanes = [16.5, 50, 83.5];
-            let lane = Math.floor(Math.random() * lanes.length);
-            if (lanes.length > 1 && lane === floatingChatLastLane) {
-                lane = (lane + 1 + Math.floor(Math.random() * (lanes.length - 1))) % lanes.length;
-            }
-            floatingChatLastLane = lane;
-            floatingMsg.style.left = `${lanes[lane]}%`;
+            floatingMsg.style.left = `${7 + Math.random() * 86}%`;
             if (isAlert) {
                 floatingMsg.style.color = '#b83d53';
                 floatingMsg.style.borderColor = '#e6b8c1';
