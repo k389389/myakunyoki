@@ -1365,8 +1365,22 @@
         let myKaburiCount = 0;
         let isDisqualified = false;
 
-        // プレイヤーのスコアデータ（自分「か」＋CPU参加者）
+        // プレイヤーのスコアデータ（自分の参加者のみ）
         let players = [];
+
+        // 過去のバージョンでFirebaseに残ったCPU参加者を識別する。
+        function isCpuPlayerData(player) {
+            if (!player || typeof player !== 'object') return false;
+            const name = String(player.name || '').trim();
+            const type = String(player.type || player.role || '').trim().toLowerCase();
+            return player.isCPU === true ||
+                   player.isCpu === true ||
+                   player.cpu === true ||
+                   type === 'cpu' ||
+                   /^cpu\d*$/i.test(name) ||
+                   /ＣＰＵ/.test(name) ||
+                   /コンピューター/.test(name);
+        }
 
         const timerDisplay = document.getElementById('timerDisplay');
         const currentCountSpan = document.getElementById('currentCount');
@@ -2521,14 +2535,29 @@
             }
 
             const remotePlayers = game.players || {};
-            players = Object.entries(remotePlayers).map(([id, p]) => ({
-                id,
-                name: p.name || '名無し',
-                score: Number(p.score || 0),
-                isMe: id === myPlayerId,
-                isDisqualified: !!p.isDisqualified,
-                kaburiCount: Number(p.kaburiCount || 0)
-            }));
+
+            // 過去のバージョンでFirebaseに残ったCPU参加者は、一覧・人数に一切含めない。
+            const staleCpuIds = Object.entries(remotePlayers)
+                .filter(([, p]) => isCpuPlayerData(p))
+                .map(([id]) => id);
+
+            // Firebase側に残っている古いCPUデータも、このタイミングで削除する。
+            if (staleCpuIds.length && roomRef) {
+                const cleanup = {};
+                staleCpuIds.forEach(id => { cleanup[id] = null; });
+                roomRef.child('game/players').update(cleanup).catch(err => console.warn('CPU cleanup:', err));
+            }
+
+            players = Object.entries(remotePlayers)
+                .filter(([, p]) => !isCpuPlayerData(p))
+                .map(([id, p]) => ({
+                    id,
+                    name: p.name || '名無し',
+                    score: Number(p.score || 0),
+                    isMe: id === myPlayerId,
+                    isDisqualified: !!p.isDisqualified,
+                    kaburiCount: Number(p.kaburiCount || 0)
+                }));
 
             const me = players.find(p => p.isMe);
             isDisqualified = !!(me && me.isDisqualified);
