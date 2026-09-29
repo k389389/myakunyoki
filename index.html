@@ -2492,18 +2492,22 @@
 
                                 // CPUが押したときも、別CPUが0.2秒以内に追いかけることがある。
                                 // これによりCPU同士のかぶりも実際に発生する。
-                                if (ids.length >= 2 && Math.random() < 0.55 && !cpuKaburiTimer) {
+                                if (ids.length >= 2 && Math.random() < 0.80 && !cpuKaburiTimer) {
+                                    // Firebase通信の往復時間で0.2秒を超えてしまわないよう、
+                                    // 2人目のCPUは最新状態を読み直してからではなく、すぐに押す。
+                                    // performNyokkiPress側がサーバー上のlastPressAtを基準に0.2秒を判定する。
                                     const otherIds = ids.filter(id => id !== cpuId);
                                     const otherCpuId = otherIds[Math.floor(Math.random() * otherIds.length)];
                                     cpuKaburiTimer = setTimeout(async () => {
                                         cpuKaburiTimer = null;
-                                        const latestSnap = await roomRef.child('game').once('value');
-                                        const latestGame = latestSnap.val();
+                                        if (!roomRef) return;
+                                        const latestGameSnap = await roomRef.child('game').once('value');
+                                        const latestGame = latestGameSnap.val();
                                         if (latestGame && !latestGame.isGameOver && latestGame.timerStartAt && !latestGame.mushroom?.active) {
                                             await performNyokkiPress(otherCpuId, true);
                                         }
                                         scheduleCpuActions(latestGame || latest);
-                                    }, 55 + Math.floor(Math.random() * 90));
+                                    }, 20);
                                 }
                             }
                         }
