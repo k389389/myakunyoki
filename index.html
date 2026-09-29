@@ -1982,7 +1982,6 @@
                         game.lastKaburiPlayerId = '';
                         game.lastKaburiPlayerIds = [];
                         game.lastKaburiAt = 0;
-                        game.kaburiGroupStartedAt = 0;
                         game.pendingWin = null;
                         game.lockedUntil = 0;
                         game.isGameOver = false;
@@ -2225,84 +2224,118 @@
         nyokkiBtn.addEventListener('pointerleave', clearNyokkiPressed);
 
         // Firebaseオンライン対戦版：ミャクボタン
-        // 人間・CPUの両方が同じFirebase判定を通るように共通化。
-        async function performNyokkiPress(actorId, isCPU = false) {
+        nyokkiBtn.addEventListener('click', async () => {
             if (isGameOver || !isGameStarted || !onlineReady || !roomRef) return;
 
+            const me = players.find(p => p.isMe);
+            if (!me || me.isDisqualified || isDisqualified) {
+                addLogMessage('⚠️ あなたは失格しているため参加できません。', true);
+                return;
+            }
+
+            // Firebaseのサーバー時刻との差を使い、端末時計のズレを補正。
+            const now = Date.now() + serverTimeOffset;
+
             try {
-                const now = getServerNow();
                 const result = await roomRef.child('game').transaction(game => {
-                    if (!game) return;
+                    game = game || {
+                        currentCount: 0,
+                        maxCount: 0,
+                        toggleState: false,
+                        lastPressAt: 0,
+                        lastPlayerId: '',
+                        isGameOver: false,
+                        startedAt: firebase.database.ServerValue.TIMESTAMP
+                    };
+
                     if (game.isGameOver) return;
 
-                    const actor = game.players && game.players[actorId];
-                    if (!actor || actor.isDisqualified) return;
+                    const myPlayerData = game.players && game.players[myPlayerId];
+                    if (!myPlayerData || myPlayerData.isDisqualified) return;
 
-                    // かぶり判定中は全体ロックを一時的に無視し、直前の別プレイヤーとの0.2秒を判定。
-                    const withinKaburiWindow = game.lastPressAt &&
+                    // かぶり判定中（直前の押下から0.2秒以内）は、全員を同じ「かぶりグループ」に
+                    // 参加させるため、1.5秒の全体ロックを一時的に無視する。
+                    const firstPressAt = Number(game.lastPressAt || 0);
+                    const withinKaburiWindow = firstPressAt > 0 &&
                         game.lastPlayerId &&
-                        game.lastPlayerId !== actorId &&
-                        (now - Number(game.lastPressAt) <= KABURI_WINDOW_MS);
+                        game.lastPlayerId !== myPlayerId &&
+                        (now - firstPressAt <= KABURI_WINDOW_MS);
                     if (Number(game.lockedUntil || 0) > now && !withinKaburiWindow) return;
-                    if (Number(actor.nyokkiCooldownUntil || 0) > now) return;
+                    if (Number(myPlayerData.nyokkiCooldownUntil || 0) > now) return;
 
-                    const kaburi = !!withinKaburiWindow;
-                    const successVal = parseInt(game.rules?.success ?? document.getElementById('ruleSuccess').value) || 1;
-                    const failVal = String(game.rules?.fail ?? document.getElementById('ruleFail').value);
-                    const winTarget = parseInt(game.rules?.win ?? document.getElementById('ruleWin').value);
-                    const disqualifyVal = String(game.rules?.disqualify ?? document.getElementById('ruleDisqualify').value);
+                    const kaburi = withinKaburiWindow;
 
+                    const successVal = parseInt(document.getElementById('ruleSuccess').value) || 1;
+                    const failVal = document.getElementById('ruleFail').value;
+                    const winTarget = parseInt(document.getElementById('ruleWin').value);
+                    const disqualifyVal = document.getElementById('ruleDisqualify').value;
+
+                    // 「かぶり」は、最初の1人が押した時刻から0.2秒だけ受付。
+                    // 2人目以降が押しても、この0.2秒の基準時刻は延長しない。
                     if (kaburi) {
                         const target = game.lastPlayerId;
                         const targetPlayer = game.players && game.players[target];
-                        const currentPlayer = game.players && game.players[actorId];
-                        if (!targetPlayer || !currentPlayer || targetPlayer.isDisqualified || currentPlayer.isDisqualified) return game;
+                        const currentPlayer = game.players && game.players[myPlayerId];
 
-                        // 3人以上が同じ0.2秒以内に押した場合も、全員を1つのかぶりグループとして扱う。
-                        // 判定時間はグループ最初の押下から0.2秒で固定し、連続押下で延長しない。
-                        const groupStartAt = Number(game.kaburiGroupStartedAt || game.lastPressAt || now);
-                        if (now - groupStartAt > KABURI_WINDOW_MS) return game;
+                        if (!targetPlayer || !currentPlayer ||
+                            targetPlayer.isDisqualified || currentPlayer.isDisqualified) {
+                            return game;
+                        }
 
-                        const wasExistingKaburiGroup = game.lastWasKaburi === true && Array.isArray(game.lastKaburiPlayerIds) && game.lastKaburiPlayerIds.length > 0;
-                        const previousKaburiIds = wasExistingKaburiGroup ? game.lastKaburiPlayerIds : [target];
-                        const kaburiPlayerIds = [...new Set([...previousKaburiIds, actorId])];
+                        // 最初の2人がかぶった後、0.2秒以内に入った3人目以降も
+                        // 最初の1人から始まった同じかぶりグループに追加する。
+                        const activeKaburiGroup = (game.lastWasKaburi === true &&
+                            Array.isArray(game.lastKaburiPlayerIds) &&
+                            game.lastKaburiPlayerIds.length > 0)
+                            ? game.lastKaburiPlayerIds.slice()
+                            : [target];
+                        const kaburiPlayerIds = [...new Set([...activeKaburiGroup, target, myPlayerId])];
 
-                        // 最初のプレイヤーが優勝点到達待ちなら、その保留を取り消す。
                         const targetWasPendingWin = !!(game.pendingWin && game.pendingWin.playerId === target);
-                        if (game.pendingWin && kaburiPlayerIds.includes(game.pendingWin.playerId)) {
+                        if (targetWasPendingWin) {
                             game.pendingWin = null;
                         }
 
-                        // 最初の2人がかぶった場合だけ、先に入った成功得点を取り消す。
-                        // 優勝点到達待ちだった場合は、まだ成功得点を確定していないので取り消さない。
-                        const targetWasNormalSuccess = !wasExistingKaburiGroup && !targetWasPendingWin;
+                        // 最初の1人が通常押下で得た成功得点だけを、最初のかぶり成立時に取り消す。
+                        const targetWasNormalSuccess = game.lastWasKaburi !== true && !targetWasPendingWin;
                         if (targetWasNormalSuccess && game.players[target] && !game.players[target].isDisqualified) {
                             game.players[target].score = Math.max(0, Number(game.players[target].score || 0) - successVal);
                         }
 
-                        // 初回のかぶりなら2人、3人目以降なら新しく入った人だけを処理する。
-                        const playersToPenalize = targetWasNormalSuccess ? [target, actorId] : [actorId];
-                        playersToPenalize.forEach(pid => {
+                        // すでにかぶり処理済みの人には再度減点・失格回数を加算しない。
+                        const alreadyKaburiIds = new Set(activeKaburiGroup);
+                        if (targetWasNormalSuccess) alreadyKaburiIds.delete(target);
+
+                        kaburiPlayerIds.forEach(pid => {
                             const p = game.players[pid];
-                            if (!p || p.isDisqualified) return;
-                            if (failVal === '0') p.score = 0;
-                            else p.score = Math.max(0, Number(p.score || 0) + (parseInt(failVal) || 0));
-                            p.kaburiCount = Number(p.kaburiCount || 0) + 1;
-                            if (disqualifyVal !== 'unlimited') {
-                                const limitCount = parseInt(disqualifyVal);
-                                if (limitCount > 0 && p.kaburiCount >= limitCount) p.isDisqualified = true;
+                            if (!p || p.isDisqualified || alreadyKaburiIds.has(pid)) return;
+
+                            if (failVal === "0") {
+                                p.score = 0;
+                            } else {
+                                const deduct = parseInt(failVal) || 0;
+                                p.score = Math.max(0, Number(p.score || 0) + deduct);
                             }
+
+                            p.kaburiCount = Number(p.kaburiCount || 0) + 1;
+
+                            if (disqualifyVal !== "unlimited") {
+                                const limitCount = parseInt(disqualifyVal);
+                                if (limitCount > 0 && p.kaburiCount >= limitCount) {
+                                    p.isDisqualified = true;
+                                }
+                            }
+
                             p.nyokkiCooldownUntil = now + NYOKKI_COOLDOWN_MS;
                         });
 
                         game.currentCount = 0;
-                        game.lastPressAt = now;
-                        game.lastPlayerId = actorId;
+                        game.lastPressAt = firstPressAt;
+                        game.lastPlayerId = myPlayerId;
                         game.lastWasKaburi = true;
                         game.lastKaburiPlayerId = target;
                         game.lastKaburiPlayerIds = kaburiPlayerIds;
-                        game.lastKaburiAt = now;
-                        game.kaburiGroupStartedAt = groupStartAt;
+                        game.lastKaburiAt = firstPressAt;
                         game.lockedUntil = now + KABURI_GLOBAL_LOCK_MS;
                         return game;
                     }
@@ -2311,42 +2344,46 @@
                     game.currentCount = (game.currentCount || 0) + successVal;
                     game.maxCount = Math.max(game.maxCount || 0, game.currentCount);
                     game.lastPressAt = now;
-                    game.lastPlayerId = actorId;
+                    game.lastPlayerId = myPlayerId;
                     game.lastWasKaburi = false;
-                    game.kaburiGroupStartedAt = 0;
+                    game.lastKaburiPlayerIds = [];
+                    game.lastKaburiAt = 0;
                     game.lockedUntil = 0;
-                    actor.nyokkiCooldownUntil = now + NYOKKI_COOLDOWN_MS;
-
-                    const nextScore = Number(actor.score || 0) + successVal;
-                    if (nextScore >= winTarget) {
-                        game.pendingWin = { playerId: actorId, score: nextScore, dueAt: now + KABURI_WINDOW_MS };
-                    } else {
-                        actor.score = nextScore;
-                        game.pendingWin = null;
+                    if (game.players && game.players[myPlayerId]) {
+                        game.players[myPlayerId].nyokkiCooldownUntil = now + NYOKKI_COOLDOWN_MS;
                     }
+
+                    if (game.players && game.players[myPlayerId]) {
+                        const nextScore = (game.players[myPlayerId].score || 0) + successVal;
+
+                        // 優勝点に到達する押下だけは、0.2秒のかぶり判定が終わるまで保留。
+                        // その間に別プレイヤーが押してかぶった場合、先に得点を入れないので
+                        // 「先に優勝してしまう」ことを防ぐ。
+                        if (nextScore >= winTarget) {
+                            game.pendingWin = {
+                                playerId: myPlayerId,
+                                score: nextScore,
+                                dueAt: now + KABURI_WINDOW_MS
+                            };
+                        } else {
+                            game.players[myPlayerId].score = nextScore;
+                            game.pendingWin = null;
+                        }
+                    }
+
                     return game;
                 });
 
-                if (!result || !result.committed) return;
+                if (!result.committed) return;
                 const committedGame = result.snapshot.val() || {};
-                if (committedGame.pendingWin && committedGame.pendingWin.playerId === actorId) {
+                if (committedGame.pendingWin && committedGame.pendingWin.playerId === myPlayerId) {
                     finalizePendingWin(committedGame.pendingWin.playerId, committedGame.pendingWin.dueAt);
                 }
-                if (!isCPU) playSound(committedGame.lastWasKaburi ? 'kaburi' : 'success');
+                playSound(committedGame.lastWasKaburi ? 'kaburi' : 'success');
             } catch (err) {
                 console.error(err);
-                if (!isCPU) addLogMessage('⚠️ 通信エラーが発生しました。もう一度押してください。', true);
+                addLogMessage('⚠️ 通信エラーが発生しました。もう一度押してください。', true);
             }
-        }
-
-        nyokkiBtn.addEventListener('click', async () => {
-            if (isGameOver || !isGameStarted || !onlineReady || !roomRef) return;
-            const me = players.find(p => p.isMe);
-            if (!me || me.isDisqualified || isDisqualified) {
-                addLogMessage('⚠️ あなたは失格しているため参加できません。', true);
-                return;
-            }
-            await performNyokkiPress(myPlayerId, false);
         });
 
         // 優勝点到達時は、かぶり判定の0.2秒が終わってから確定する。
@@ -2399,144 +2436,6 @@
         let onlineListenersBound = false;
         let reactionListenerStartedAt = Date.now();
 
-        // CPU参加者：人間参加者が増えるほどCPUを減らし、最大3人まで補充する。
-        const MAX_CPU_PLAYERS = 3;
-        const CPU_PLAYER_NAMES = ['CPU1', 'CPU2', 'CPU3'];
-        let cpuTurnTimer = null;
-        let cpuMushroomTimer = null;
-        let cpuKaburiTimer = null;
-        let lastCpuGameStartAt = 0;
-
-        function getHumanPlayerIds(game) {
-            return Object.keys(game?.players || {}).filter(id => !String(id).startsWith('cpu_'));
-        }
-
-        function getCpuPlayerIds(game) {
-            return Object.keys(game?.players || {}).filter(id => String(id).startsWith('cpu_'));
-        }
-
-        // 人間参加者数に応じてCPU人数を自動調整。
-        // 人間1人→CPU3人、2人→CPU2人、3人→CPU1人、4人以上→CPU0人。
-        function syncCpuPlayers() {
-            if (!onlineReady || !roomRef) return;
-            roomRef.child('game').transaction(game => {
-                if (!game || !game.players) return game;
-                const humanIds = getHumanPlayerIds(game);
-                const desiredCpuCount = Math.max(0, Math.min(MAX_CPU_PLAYERS, MAX_CPU_PLAYERS - (humanIds.length - 1)));
-                const cpuIds = getCpuPlayerIds(game).sort();
-
-                while (cpuIds.length > desiredCpuCount) {
-                    const id = cpuIds.pop();
-                    delete game.players[id];
-                }
-                for (let i = 1; i <= desiredCpuCount; i++) {
-                    const id = `cpu_${i}`;
-                    if (!game.players[id]) {
-                        game.players[id] = {
-                            name: CPU_PLAYER_NAMES[i - 1] || `CPU${i}`,
-                            score: 0,
-                            isDisqualified: false,
-                            kaburiCount: 0,
-                            nyokkiCooldownUntil: 0,
-                            connected: true,
-                            isCPU: true,
-                            joinedAt: getServerNow()
-                        };
-                    } else {
-                        game.players[id].isCPU = true;
-                        game.players[id].connected = true;
-                    }
-                }
-                return game;
-            });
-        }
-
-        function getCpuControllerId(game) {
-            const humans = getHumanPlayerIds(game).sort();
-            return humans[0] || null;
-        }
-
-        function clearCpuTimers() {
-            if (cpuTurnTimer) { clearTimeout(cpuTurnTimer); cpuTurnTimer = null; }
-            if (cpuMushroomTimer) { clearTimeout(cpuMushroomTimer); cpuMushroomTimer = null; }
-            if (cpuKaburiTimer) { clearTimeout(cpuKaburiTimer); cpuKaburiTimer = null; }
-        }
-
-        function scheduleCpuActions(game) {
-            const controllerId = getCpuControllerId(game);
-            if (!controllerId || controllerId !== myPlayerId || !game?.timerStartAt || game.isGameOver) {
-                clearCpuTimers();
-                return;
-            }
-            if (lastCpuGameStartAt !== Number(game.timerStartAt || 0)) {
-                lastCpuGameStartAt = Number(game.timerStartAt || 0);
-                clearCpuTimers();
-            }
-
-            const cpuIds = getCpuPlayerIds(game);
-            if (!cpuIds.length) { clearCpuTimers(); return; }
-
-            // CPUの通常押下は約1〜3秒に1回。
-            // CPUが押した後は20%の確率で別のCPUも0.2秒以内に押し、CPU同士がかぶる。
-            // 人間プレイヤーは特別に追いかけず、実際に同じタイミングで押した場合だけ
-            // 通常の0.2秒かぶり判定に入る。
-            if (!game.mushroom?.active && !cpuTurnTimer && !cpuKaburiTimer) {
-                cpuTurnTimer = setTimeout(async () => {
-                    cpuTurnTimer = null;
-                    const snap = await roomRef.child('game').once('value');
-                    const latest = snap.val();
-                    if (latest && !latest.isGameOver && latest.timerStartAt && !latest.mushroom?.active) {
-                        const ids = getCpuPlayerIds(latest);
-                        if (ids.length) {
-                            const cpuId = ids[Math.floor(Math.random() * ids.length)];
-                            await performNyokkiPress(cpuId, true);
-
-                            // CPUが押した後、20%の確率で別CPUも同時に押す。
-                            // 2回目も同じperformNyokkiPressを通すため、
-                            // 人間同士・人間とCPUと同じ0.2秒のかぶり判定になる。
-                            if (ids.length >= 2 && Math.random() < 0.20 && !cpuKaburiTimer) {
-                                const otherIds = ids.filter(id => id !== cpuId);
-                                const otherCpuId = otherIds[Math.floor(Math.random() * otherIds.length)];
-                                // CPU同士のかぶりは通信遅延で0.2秒を外れにくくするため、
-                                // 1回目の押下直後にできるだけ早く2回目を送る。
-                                cpuKaburiTimer = setTimeout(async () => {
-                                    cpuKaburiTimer = null;
-                                    if (roomRef) {
-                                        await performNyokkiPress(otherCpuId, true);
-                                    }
-                                    const latestGameSnap = await roomRef.child('game').once('value');
-                                    scheduleCpuActions(latestGameSnap.val() || latest);
-                                }, 5);
-                            }
-                        }
-                    }
-                    if (!cpuKaburiTimer) scheduleCpuActions(latest || game);
-                }, 1000 + Math.floor(Math.random() * 2000));
-            }
-
-            if (game.mushroom?.active && !cpuMushroomTimer) {
-                cpuMushroomTimer = setTimeout(async () => {
-                    cpuMushroomTimer = null;
-                    if (!roomRef) return;
-                    await roomRef.child('game').transaction(g => {
-                        if (!g || g.isGameOver || !g.mushroom?.active) return g;
-                        const startAt = Number(g.mushroom.startAt || 0);
-                        if (!startAt || getServerNow() >= startAt + 5000) return g;
-                        g.mushroom.counts = g.mushroom.counts || {};
-                        getCpuPlayerIds(g).forEach(id => {
-                            if (!g.players?.[id]?.isDisqualified && Math.random() < 0.72) {
-                                g.mushroom.counts[id] = Number(g.mushroom.counts[id] || 0) + 1;
-                            }
-                        });
-                        return g;
-                    });
-                    const snap = await roomRef.child('game').once('value');
-                    scheduleCpuActions(snap.val() || game);
-                }, 180);
-            }
-        }
-
-
         const onlineOverlay = document.getElementById('onlineRoomOverlay');
         const onlineNameInput = document.getElementById('onlineNameInput');
         const onlineJoinBtn = document.getElementById('onlineJoinBtn');
@@ -2561,7 +2460,7 @@
                     <span>${p.isMe ? '⭐' : '👤'}</span>
                     <span class="participant-name">${p.name || '名無し'}${p.isMe ? '（あなた）' : ''}</span>
                     <span class="participant-score">${p.score}点</span>
-                    <span class="participant-status">${p.isDisqualified ? '失格' : (p.isCPU ? 'CPU' : '参加中')}</span>`;
+                    <span class="participant-status">${p.isDisqualified ? '失格' : '参加中'}</span>`;
                 participantList.appendChild(row);
             });
         }
@@ -2629,8 +2528,7 @@
                 score: Number(p.score || 0),
                 isMe: id === myPlayerId,
                 isDisqualified: !!p.isDisqualified,
-                kaburiCount: Number(p.kaburiCount || 0),
-                isCPU: !!p.isCPU
+                kaburiCount: Number(p.kaburiCount || 0)
             }));
 
             const me = players.find(p => p.isMe);
@@ -2638,10 +2536,6 @@
 
             participantsText.textContent = `${players.length}人が参加中`;
             renderParticipantList();
-
-            // 人間参加者数に合わせてCPUを増減し、代表端末だけがCPUを操作する。
-            syncCpuPlayers();
-            scheduleCpuActions(game);
 
             if (game.lastWasKaburi && Number(game.lastKaburiAt || 0) > 0 && Number(game.lastKaburiAt) !== lastShownKaburiAt) {
                 lastShownKaburiAt = Number(game.lastKaburiAt);
