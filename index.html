@@ -1982,6 +1982,7 @@
                         game.lastKaburiPlayerId = '';
                         game.lastKaburiPlayerIds = [];
                         game.lastKaburiAt = 0;
+                        game.kaburiGroupStartedAt = 0;
                         game.pendingWin = null;
                         game.lockedUntil = 0;
                         game.isGameOver = false;
@@ -2312,6 +2313,7 @@
                     game.lastPressAt = now;
                     game.lastPlayerId = actorId;
                     game.lastWasKaburi = false;
+                    game.kaburiGroupStartedAt = 0;
                     game.lockedUntil = 0;
                     actor.nyokkiCooldownUntil = now + NYOKKI_COOLDOWN_MS;
 
@@ -2474,7 +2476,7 @@
             const cpuIds = getCpuPlayerIds(game);
             if (!cpuIds.length) { clearCpuTimers(); return; }
 
-            // CPUは連打しすぎないよう、通常の押下は約2.5〜4.5秒に1回。
+            // CPUの通常押下は約1〜3秒に1回。
             // CPUが押した後は20%の確率で別のCPUも0.2秒以内に押し、CPU同士がかぶる。
             // 人間プレイヤーは特別に追いかけず、実際に同じタイミングで押した場合だけ
             // 通常の0.2秒かぶり判定に入る。
@@ -2495,6 +2497,8 @@
                             if (ids.length >= 2 && Math.random() < 0.20 && !cpuKaburiTimer) {
                                 const otherIds = ids.filter(id => id !== cpuId);
                                 const otherCpuId = otherIds[Math.floor(Math.random() * otherIds.length)];
+                                // CPU同士のかぶりは通信遅延で0.2秒を外れにくくするため、
+                                // 1回目の押下直後にできるだけ早く2回目を送る。
                                 cpuKaburiTimer = setTimeout(async () => {
                                     cpuKaburiTimer = null;
                                     if (roomRef) {
@@ -2502,12 +2506,12 @@
                                     }
                                     const latestGameSnap = await roomRef.child('game').once('value');
                                     scheduleCpuActions(latestGameSnap.val() || latest);
-                                }, 20);
+                                }, 5);
                             }
                         }
                     }
                     if (!cpuKaburiTimer) scheduleCpuActions(latest || game);
-                }, 2500 + Math.floor(Math.random() * 2000));
+                }, 1000 + Math.floor(Math.random() * 2000));
             }
 
             if (game.mushroom?.active && !cpuMushroomTimer) {
