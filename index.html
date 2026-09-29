@@ -2521,14 +2521,29 @@
             }
 
             const remotePlayers = game.players || {};
-            players = Object.entries(remotePlayers).map(([id, p]) => ({
-                id,
-                name: p.name || '名無し',
-                score: Number(p.score || 0),
-                isMe: id === myPlayerId,
-                isDisqualified: !!p.isDisqualified,
-                kaburiCount: Number(p.kaburiCount || 0)
-            }));
+
+            // 過去のバージョンでFirebaseに残ったCPU参加者は、一覧・人数に一切含めない。
+            const staleCpuIds = Object.entries(remotePlayers)
+                .filter(([, p]) => isCpuPlayerData(p))
+                .map(([id]) => id);
+
+            // Firebase側に残っている古いCPUデータも、このタイミングで削除する。
+            if (staleCpuIds.length && roomRef) {
+                const cleanup = {};
+                staleCpuIds.forEach(id => { cleanup[id] = null; });
+                roomRef.child('game/players').update(cleanup).catch(err => console.warn('CPU cleanup:', err));
+            }
+
+            players = Object.entries(remotePlayers)
+                .filter(([, p]) => !isCpuPlayerData(p))
+                .map(([id, p]) => ({
+                    id,
+                    name: p.name || '名無し',
+                    score: Number(p.score || 0),
+                    isMe: id === myPlayerId,
+                    isDisqualified: !!p.isDisqualified,
+                    kaburiCount: Number(p.kaburiCount || 0)
+                }));
 
             const me = players.find(p => p.isMe);
             isDisqualified = !!(me && me.isDisqualified);
